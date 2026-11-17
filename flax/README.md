@@ -11,7 +11,7 @@ Made for Flax 1.13. Tested on Linux and Windows, in the editor and in cooked gam
 1. Put this repository into your project, for example in `Plugins/Terni`.
 2. Build Terni once (needs CMake, a C++20 compiler, the Vulkan headers and shaderc):
    ```sh
-   Plugins/Terni/flax/build-native.sh        # Windows: build-native.bat, from a VS command prompt
+   Plugins/Terni/flax/build-native.sh        # Windows: build-native.bat (Visual Studio and the Vulkan SDK)
    ```
 3. Reference the plugin in your `.flaxproj`:
    ```json
@@ -42,10 +42,18 @@ public class Towns : Script
     public override void OnStart()
     {
         _simulation = Actor.GetScript<TerniSimulation>();
-        var world = _simulation.World;
+        _simulation.Started += OnStarted;              // each time a world has started
+        _simulation.TickCompleted += OnTick;
+        if (_simulation.IsRunning)
+            OnStarted(_simulation);
+    }
+
+    private void OnStarted(TerniSimulation simulation)
+    {
+        // Subscriptions belong to one world: make them again for every world.
+        var world = simulation.World;
         _town = world.Entity("town");
         _pop = world.Subscribe(_town, "pop");          // comes back with every tick
-        _simulation.TickCompleted += OnTick;
     }
 
     private void OnTick(TerniSimulation simulation)
@@ -149,7 +157,8 @@ Terni's own tools give. On Windows, run `test.bat`. The test makes wrong calls o
 purpose, so the editor's log ends with a few `[Terni]` errors even when it passes.
 
 - `./test.sh --cooked` cooks the example for Linux first, changes a rule in the cooked
-  game as a mod would, and runs the same test there.
+  game as a mod would, and runs the same test there. The editor needs Flax's Linux
+  platform files for that (they come separately from the editor download).
 - `./test.sh --visual` (Windows: `test.bat visual`) applies the editor's own rules for
   what visual scripts can use to every member of the plugin's types, and checks that a
   visual script has what it needs.
