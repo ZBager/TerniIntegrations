@@ -4,8 +4,7 @@ A Flax plugin that runs a [Terni](https://github.com/ZBager/Terni) game folder f
 C++, C# and Visual Scripting. The simulation runs on a Vulkan device of its own, next
 to the renderer, and gives the same results on every machine.
 
-Made for Flax 1.13 on Linux and Windows. Both run the self-test in the editor; cooked
-games have only been tried on Linux.
+Made for Flax 1.13. Tested on Linux and Windows, in the editor and in cooked games.
 
 ## Install
 
@@ -116,7 +115,6 @@ a rule in the cooked game as a mod would, and runs the same test there.
 
 ## Not done yet
 
-- Windows: cooking a game has not been tried.
 - Stopping worlds when scripts reload in the editor is in place and has not been tested.
 - Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
