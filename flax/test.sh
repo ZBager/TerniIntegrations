@@ -13,11 +13,17 @@
 #                                                        makes it rebuild and reload the
 #                                                        scripts: the world must be freed
 #                                                        and a new one must run
+#   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --visual   checks, by the editor's own rules,
+#                                                        that visual scripts can use what
+#                                                        they need of the plugin
 set -euo pipefail
 cd "$(dirname "$0")/Example"
 : "${FLAX_EDITOR:?Set FLAX_EDITOR to the FlaxEditor program}"
 RESULT="$(mktemp)"
-if [[ "${1:-}" == "--reload" ]]; then
+if [[ "${1:-}" == "--visual" ]]; then
+    TERNI_VISUAL_CHECK="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" > /dev/null 2>&1 || true
+    sed -i '/^usable/d' "$RESULT"   # the full list is long; keep what failed and the checks
+elif [[ "${1:-}" == "--reload" ]]; then
     rm -f "$RESULT.reloading"
     TERNI_RELOAD_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" > /dev/null 2>&1 || true
     LOG="Logs/$(ls -t Logs | head -1)"

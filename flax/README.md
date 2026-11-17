@@ -78,6 +78,14 @@ public class Towns : Script
 Values are raw integers: a quantity of 1 is 256, a rate of 1 is 65536. Keep them raw
 in game logic and in anything sent to other players.
 
+### Visual Scripting
+
+Visual scripts can use `TerniWorld` and `TerniSimulation` like C# scripts can, with one
+difference: they cannot bind the C# events `Started`, `TickCompleted` and `Failed`.
+Instead, in **On Update**, compare the simulation's `Ticks` with the value from the last
+frame to act on new ticks, and check `IsRunning` and `LastError`. Use
+`GetSubscribed` (an array copy) where C# would use `Subscribed` (a span).
+
 ### Rules and the SPIR-V cache
 
 Rules are compiled by `terni_compile_rules`, a program that the plugin's build puts
@@ -126,6 +134,9 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 
 - `./test.sh --cooked` cooks the example for Linux first, changes a rule in the cooked
   game as a mod would, and runs the same test there.
+- `./test.sh --visual` (Windows: `test.bat visual`) applies the editor's own rules for
+  what visual scripts can use to every member of the plugin's types, and checks that a
+  visual script has what it needs.
 - `./test.sh --reload` (Windows: `test.bat reload`) starts a world in the editor, makes
   the editor rebuild and reload the scripts, and checks that the world was freed and a
   new one runs.
@@ -133,5 +144,5 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 ## Not done yet
 
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
-- Visual Scripting: `TerniWorld` and `TerniSimulation` are open to it like any scripting
-  type; no graph has been made with them yet.
+- A visual script run end to end: the check below covers what the editor offers, not
+  a graph that has been built and played.

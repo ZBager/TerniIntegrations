@@ -75,6 +75,13 @@ namespace Terni
         public bool StartInBackground = true;
 
         /// <summary>
+        /// Why loading, starting or the last tick failed; empty if nothing failed. Visual
+        /// scripts, which cannot bind the events of this script, can check it instead of Failed.
+        /// </summary>
+        [NoSerialize]
+        public string LastError { get; private set; } = "";
+
+        /// <summary>
         /// The world started and its starting state is on the device.
         /// </summary>
         public event Action<TerniSimulation> Started;
@@ -92,19 +99,19 @@ namespace Terni
         /// <summary>
         /// The world, or null before StartWorld() and after StopWorld().
         /// </summary>
-        [HideInEditor, NoSerialize]
+        [NoSerialize]
         public TerniWorld World { get; private set; }
 
         /// <summary>
         /// The world is running.
         /// </summary>
-        [HideInEditor, NoSerialize]
+        [NoSerialize]
         public bool IsRunning => World != null && World.IsRunning;
 
         /// <summary>
         /// Completed ticks.
         /// </summary>
-        [HideInEditor, NoSerialize]
+        [NoSerialize]
         public ulong Ticks => World != null ? World.Ticks : 0;
 
         private double _due;
@@ -120,7 +127,7 @@ namespace Terni
         /// <summary>
         /// The world is starting in the background.
         /// </summary>
-        [HideInEditor, NoSerialize]
+        [NoSerialize]
         public bool IsStarting => World != null && World.IsStarting;
 
         /// <summary>
@@ -131,6 +138,7 @@ namespace Terni
         public bool StartWorld()
         {
             StopWorld();
+            LastError = "";
             World = new TerniWorld();
             var options = new TerniStartOptions
             {
@@ -163,6 +171,7 @@ namespace Terni
         private void FailStart()
         {
             var error = World.LastError;
+            LastError = error;
             StopWorld();
             Failed?.Invoke(this, error);
         }
@@ -262,6 +271,7 @@ namespace Terni
         private bool Fail()
         {
             var error = World != null ? World.LastError : "";
+            LastError = error;
             Paused = true;
             Failed?.Invoke(this, error);
             return false;

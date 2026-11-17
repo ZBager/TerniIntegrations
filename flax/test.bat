@@ -7,10 +7,12 @@ rem device, checked against the state hash Terni gives on its own.
 rem   set FLAX_EDITOR=C:\path\to\FlaxEditor.exe
 rem   test.bat          the self-test
 rem   test.bat reload   the scripts reload test
+rem   test.bat visual   what visual scripts can use of the plugin
 setlocal
 if "%FLAX_EDITOR%"=="" (echo Set FLAX_EDITOR to FlaxEditor.exe & exit /b 2)
 cd /d "%~dp0Example"
 if /i "%1"=="reload" goto reload
+if /i "%1"=="visual" goto visual
 set TERNI_EXAMPLE_TEST=%TEMP%\terni_selftest.txt
 del "%TERNI_EXAMPLE_TEST%" 2>nul
 rem The editor reads its command line itself and does not see a switch inside quotes:
@@ -30,3 +32,12 @@ del "%TERNI_RELOAD_TEST%" "%TERNI_RELOAD_TEST%.reloading" 2>nul
 if not exist "%TERNI_RELOAD_TEST%" (echo The reload test did not run: see Example\Logs & exit /b 1)
 type "%TERNI_RELOAD_TEST%"
 findstr /x /c:"PASSED" "%TERNI_RELOAD_TEST%" >nul || exit /b 1
+exit /b 0
+
+:visual
+set TERNI_VISUAL_CHECK=%TEMP%\terni_visualcheck.txt
+del "%TERNI_VISUAL_CHECK%" 2>nul
+"%FLAX_EDITOR%" -std -headless -mute -project "%CD%"
+if not exist "%TERNI_VISUAL_CHECK%" (echo The check did not run: see Example\Logs & exit /b 1)
+findstr /v /b /c:"usable" "%TERNI_VISUAL_CHECK%"
+findstr /x /c:"PASSED" "%TERNI_VISUAL_CHECK%" >nul || exit /b 1
