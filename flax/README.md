@@ -160,5 +160,3 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 ## Not done yet
 
 - Shipping a software Vulkan driver, for machines whose GPUs cannot run the simulation.
-- The renderer's GPU on Windows with DirectX (the default there) is found by its adapter
-  LUID; this has not been run yet.
