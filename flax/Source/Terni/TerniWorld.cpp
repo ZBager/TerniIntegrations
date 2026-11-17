@@ -13,7 +13,7 @@
 #include "Engine/Scripting/Scripting.h"
 
 #if PLATFORM_WINDOWS
-#include "Engine/Platform/Windows/IncludeWindowsHeaders.h"
+#include "Engine/Platform/Win32/IncludeWindowsHeaders.h"
 #else
 #include <dlfcn.h>
 #endif

@@ -72,7 +72,7 @@ namespace TerniEditor
             _nextRefresh = Time.UnscaledGameTime + 0.5f;
             try
             {
-                Refresh();
+                RefreshNow();
             }
             catch (Exception e)
             {
@@ -88,7 +88,7 @@ namespace TerniEditor
             return text.Length == 0 ? "No Vulkan device found." : text.ToString().TrimEnd();
         }
 
-        private void Refresh()
+        private void RefreshNow()
         {
             var list = TerniWorld.GetWorlds();
             if (!list.SequenceEqual(_list))
