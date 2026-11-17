@@ -12,6 +12,8 @@
 #                          game as a mod would, and runs the test there. Needs Godot's
 #                          export templates: installed, or the folder holding
 #                          linux_release.x86_64 in GODOT_TEMPLATES
+#   ./test.sh --export-csharp  the same with the C# example and godot-mono; .NET export
+#                          templates installed, or their folder in GODOT_MONO_TEMPLATES
 set -euo pipefail
 cd "$(dirname "$0")/example"
 GODOT="${GODOT:-godot}"
@@ -33,11 +35,22 @@ if [[ "${1:-}" == "--csharp" ]]; then
     [[ -f .godot/mono/temp/bin/Debug/TerniExampleCs.dll ]] || { cat "$BUILD_LOG"; echo "the C# project did not build"; exit 1; }
     "$MONO" --headless --path . --import > /dev/null 2>&1
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$MONO" --headless --path . > /dev/null 2>&1 || true
-elif [[ "${1:-}" == "--export" ]]; then
-    OUT="$(realpath -m ../../build/godot-export)"
+elif [[ "${1:-}" == "--export" || "${1:-}" == "--export-csharp" ]]; then
+    if [[ "$1" == "--export-csharp" ]]; then
+        cd ../example-csharp
+        GODOT="${GODOT_MONO:-godot-mono}"
+        TEMPLATES="${GODOT_MONO_TEMPLATES:-}"
+        NAME=TerniExampleCs
+        [[ -d .godot ]] || "$GODOT" --headless --path . --import > /dev/null 2>&1 || true
+        "$GODOT" --headless --path . --build-solutions --quit > /dev/null 2>&1
+    else
+        TEMPLATES="${GODOT_TEMPLATES:-}"
+        NAME=TerniExample
+    fi
+    OUT="$(realpath -m ../../build/godot-export/$NAME)"
     rm -rf "$OUT" Galaxy/spirv && mkdir -p "$OUT"   # the export must compile the rules itself
     TEMPLATE=""
-    if [[ -n "${GODOT_TEMPLATES:-}" ]]; then TEMPLATE="$(realpath "$GODOT_TEMPLATES")/linux_release.x86_64"; fi
+    if [[ -n "$TEMPLATES" ]]; then TEMPLATE="$(realpath "$TEMPLATES")/linux_release.x86_64"; fi
     cat > export_presets.cfg <<PRESET
 [preset.0]
 
@@ -56,14 +69,14 @@ custom_template/release="$TEMPLATE"
 binary_format/embed_pck=false
 binary_format/architecture="x86_64"
 PRESET
-    EXPORT=$("$GODOT" --headless --path . --export-release Linux "$OUT/TerniExample.x86_64" 2>&1 || true)
+    EXPORT=$("$GODOT" --headless --path . --export-release Linux "$OUT/$NAME.x86_64" 2>&1 || true)
     grep -E "\[Terni\]|ERROR" <<< "$EXPORT" || true
-    [[ -x "$OUT/TerniExample.x86_64" && -f "$OUT/Galaxy/schema/entities.txt" ]] || { echo "the export failed"; exit 1; }
+    [[ -x "$OUT/$NAME.x86_64" && -f "$OUT/Galaxy/schema/entities.txt" ]] || { echo "the export failed"; exit 1; }
     [[ -x "$OUT/terni_compile_rules" && -f "$OUT/Terni-NOTICES.txt" ]] || { echo "the rule compiler or the notices are not in the export"; exit 1; }
     # A rule changed after exporting, as a mod would: the exported game must compile it itself.
     echo "// changed after exporting" >> "$OUT/Galaxy/rules/planet_growth.glsl"
     BEFORE=$(ls "$OUT/Galaxy/spirv" | wc -l)
-    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$OUT/TerniExample.x86_64" --headless > /dev/null 2>&1 || true
+    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$OUT/$NAME.x86_64" --headless > /dev/null 2>&1 || true
     [[ $(ls "$OUT/Galaxy/spirv" | wc -l) -gt $BEFORE ]] || { echo "the exported game did not compile the changed rule"; exit 1; }
 else
     MODE=(--headless)

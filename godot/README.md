@@ -7,7 +7,7 @@ every machine.
 
 Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). Tested on
 Linux and Windows, from GDScript and C#, with Vulkan and Direct3D 12, in the editor
-and in exported games (a C# project has not been exported yet).
+and in exported games.
 
 ## Build
 
@@ -101,7 +101,9 @@ public partial class Towns : Node
 ```
 
 `example-csharp/` is the galaxy in C#, with a self-test of the wrapper. Like Godot's own
-C# projects it targets .NET 8, and needs the .NET 8 SDK or newer.
+C# projects it targets .NET 8, and needs the .NET 8 SDK or newer. Exporting a C# project
+needs its solution file (`.sln`), which Godot makes with **Project > Tools > C# > Create
+C# solution**; the plugin adds nothing to that.
 
 ## The Terni tab
 
@@ -137,6 +139,7 @@ godot/test.sh                          # headless
 godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
 godot/test.sh --csharp                 # the C# example, with godot-mono
 GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, test there
+GODOT_MONO_TEMPLATES=/path/to/templates godot/test.sh --export-csharp   # the same with the C# example
 ```
 
 The first command-line import of a fresh project with the extension makes Godot 4.7

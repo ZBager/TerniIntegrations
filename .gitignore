@@ -27,3 +27,5 @@ godot/example-csharp/addons/
 godot/example-csharp/.godot/
 godot/example-csharp/Galaxy/spirv/
 !godot/example-csharp/TerniExampleCs.csproj
+godot/example-csharp/export_presets.cfg
+!godot/example-csharp/TerniExampleCs.sln
