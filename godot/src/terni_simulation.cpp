@@ -211,21 +211,22 @@ void TerniSimulation::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_ticks"), &TerniSimulation::get_ticks);
     ClassDB::bind_method(D_METHOD("get_last_error"), &TerniSimulation::get_last_error);
 
-#define TERNI_PROPERTY(type, name, ...)                                                                   \
-    ClassDB::bind_method(D_METHOD("set_" #name, "value"), &TerniSimulation::set_##name);                \
-    ClassDB::bind_method(D_METHOD("get_" #name), &TerniSimulation::get_##name);                          \
-    ADD_PROPERTY(PropertyInfo(type, #name, ##__VA_ARGS__), "set_" #name, "get_" #name)
-    TERNI_PROPERTY(Variant::STRING, game_folder, PROPERTY_HINT_DIR);
-    TERNI_PROPERTY(Variant::STRING, cache_folder, PROPERTY_HINT_DIR);
-    TERNI_PROPERTY(Variant::BOOL, auto_start);
-    TERNI_PROPERTY(Variant::FLOAT, ticks_per_second, PROPERTY_HINT_RANGE, "0,1000,0.1");
-    TERNI_PROPERTY(Variant::BOOL, paused);
-    TERNI_PROPERTY(Variant::BOOL, background);
-    TERNI_PROPERTY(Variant::BOOL, start_in_background);
-    TERNI_PROPERTY(Variant::INT, device, PROPERTY_HINT_RANGE, "-1,64");
-    TERNI_PROPERTY(Variant::BOOL, match_renderer);
-    TERNI_PROPERTY(Variant::INT, preference, PROPERTY_HINT_ENUM, "Discrete,Integrated,CPU");
-    TERNI_PROPERTY(Variant::BOOL, compile_rules);
+// A property with its setter and getter; `info` is its PropertyInfo.
+#define TERNI_PROPERTY(name, info)                                                           \
+    ClassDB::bind_method(D_METHOD("set_" #name, "value"), &TerniSimulation::set_##name);   \
+    ClassDB::bind_method(D_METHOD("get_" #name), &TerniSimulation::get_##name);             \
+    ADD_PROPERTY(info, "set_" #name, "get_" #name)
+    TERNI_PROPERTY(game_folder, PropertyInfo(Variant::STRING, "game_folder", PROPERTY_HINT_DIR));
+    TERNI_PROPERTY(cache_folder, PropertyInfo(Variant::STRING, "cache_folder", PROPERTY_HINT_DIR));
+    TERNI_PROPERTY(auto_start, PropertyInfo(Variant::BOOL, "auto_start"));
+    TERNI_PROPERTY(ticks_per_second, PropertyInfo(Variant::FLOAT, "ticks_per_second", PROPERTY_HINT_RANGE, "0,1000,0.1"));
+    TERNI_PROPERTY(paused, PropertyInfo(Variant::BOOL, "paused"));
+    TERNI_PROPERTY(background, PropertyInfo(Variant::BOOL, "background"));
+    TERNI_PROPERTY(start_in_background, PropertyInfo(Variant::BOOL, "start_in_background"));
+    TERNI_PROPERTY(device, PropertyInfo(Variant::INT, "device", PROPERTY_HINT_RANGE, "-1,64"));
+    TERNI_PROPERTY(match_renderer, PropertyInfo(Variant::BOOL, "match_renderer"));
+    TERNI_PROPERTY(preference, PropertyInfo(Variant::INT, "preference", PROPERTY_HINT_ENUM, "Discrete,Integrated,CPU"));
+    TERNI_PROPERTY(compile_rules, PropertyInfo(Variant::BOOL, "compile_rules"));
 #undef TERNI_PROPERTY
 
     ADD_SIGNAL(MethodInfo("started"));

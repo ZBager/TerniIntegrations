@@ -4,7 +4,9 @@
 // The ID of the GPU a host engine renders with, read through the engine's own graphics
 // API objects, so the simulation can run on the same GPU.
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dxgi.h>
