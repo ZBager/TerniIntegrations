@@ -5,9 +5,9 @@ GDScript and C#: the `TerniSimulation` node and the `TerniWorld` object. The sim
 on a Vulkan device of its own, next to the renderer, and gives the same results on
 every machine.
 
-Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). **Work in
-progress**: it runs in the editor, from the command line and in exported games on
-Linux, from GDScript and C#, with a Terni tab in the debugger; Windows is next.
+Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). Tested on
+Linux and Windows, from GDScript and C#, with Vulkan and Direct3D 12; exported games
+have been tried on Linux only.
 
 ## Build
 
