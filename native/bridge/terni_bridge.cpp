@@ -313,7 +313,10 @@ const int32_t* World::subscribed(int id, int& words) const {
     words = 0;
     return guard(error_, static_cast<const int32_t*>(nullptr), [&] {
         impl_->need_sim();
-        if (id < 0 || id >= impl_->subscriptions) throw std::runtime_error("no such subscription");
+        if (id < 0 || id >= impl_->subscriptions)
+            throw std::runtime_error("no such subscription: id " + std::to_string(id) + ", this world has " +
+                                     std::to_string(impl_->subscriptions) +
+                                     " (subscriptions end when a world stops or starts again)");
         const std::span<const int32_t> result = impl_->sim->tick_result(static_cast<uint32_t>(id));
         words = static_cast<int>(result.size());
         return result.data();

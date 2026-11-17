@@ -19,6 +19,7 @@ namespace Game
     {
         private TerniSimulation _simulation;
         private int _planet, _pop;
+        private TerniWorld _subscribed; // the world _pop belongs to
         private Label _label;
         private int _exitIn = -1;
 
@@ -57,10 +58,11 @@ namespace Game
                 VerticalAlignment = TextAlignment.Near,
                 Text = "Starting the simulation...",
             };
+            // Every time a world starts (the simulation can start a new one, e.g. when the
+            // script is disabled and enabled again): subscriptions belong to one world.
+            _simulation.Started += s => Setup();
             if (_simulation.IsRunning)
                 Setup();
-            else
-                _simulation.Started += s => Setup();
         }
 
         /// <inheritdoc />
@@ -86,6 +88,7 @@ namespace Game
         private void Setup()
         {
             var world = _simulation.World;
+            _subscribed = world;
             _planet = world.Entity("planet");
             // Subscribed fields come back with every tick, at no extra cost.
             _pop = world.Subscribe(_planet, "pop");
@@ -99,6 +102,8 @@ namespace Game
         private void OnTick(TerniSimulation simulation)
         {
             var world = simulation.World;
+            if (world != _subscribed)
+                Setup();
             var pop = world.Subscribed(_pop);
             var screen = new StringBuilder();
             screen.AppendLine($"Terni galaxy on {world.DeviceName}");
