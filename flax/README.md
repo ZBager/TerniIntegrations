@@ -80,7 +80,8 @@ in game logic and in anything sent to other players.
 
 ### Visual Scripting
 
-Visual scripts can use `TerniWorld` and `TerniSimulation` like C# scripts can, with one
+Visual scripts can use `TerniWorld` and `TerniSimulation` like C# scripts can (tried
+with a graph that logs the simulation's `Ticks` from **On Update**), with one
 difference: they cannot bind the C# events `Started`, `TickCompleted` and `Failed`.
 Instead, in **On Update**, compare the simulation's `Ticks` with the value from the last
 frame to act on new ticks, and check `IsRunning` and `LastError`. Use
@@ -144,5 +145,3 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 ## Not done yet
 
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
-- A visual script run end to end: `test.sh --visual` covers what the editor offers, not
-  a graph that has been built and played.
