@@ -25,9 +25,10 @@ Godot are done; next is a C API in Terni itself, then Unreal Engine and Unity.
   ```
   Batch files use `rem` and ASCII only (`Rafal Zajac`). Do not change `LICENSE` or
   `LICENSE-EXCEPTION`; they are copies of Terni's.
-- **No private names.** The repository is public. Never add paths from this machine,
-  email addresses, or names of private projects that use Terni. Before committing,
-  grep the diff for `/home/`, `C:\Users` and project names.
+- **No private names.** The repository is public. Never add absolute paths with a user
+  name in them, email addresses, or names of private projects that use Terni (this file
+  may name `~/Projects/...` for the local workflow). Before committing, grep the diff for
+  `/home/`, `C:\Users` and project names.
 - **Windows and Linux.** Every plugin must build and pass its tests on both. Code is
   standard C++ (no GCC-only extensions such as `, ##__VA_ARGS__`); batch files are
   ASCII.
