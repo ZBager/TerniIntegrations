@@ -78,6 +78,21 @@ public class Towns : Script
 Values are raw integers: a quantity of 1 is 256, a rate of 1 is 65536. Keep them raw
 in game logic and in anything sent to other players.
 
+### Which GPU
+
+By default the simulation runs on the GPU the engine renders with, if that GPU can run
+it. On a laptop with two GPUs this keeps the second one asleep, and it follows the
+player's choice of GPU for the game (in Windows' graphics settings, or Flax's `-nvidia`,
+`-amd` and `-intel` switches). Otherwise the script's **Preference** decides (a dedicated
+GPU first). **Device** names one device instead, for a settings menu;
+`TerniWorld.GetDevices()` lists them and `TerniWorld.FindRendererDevice()` says which
+one the engine renders with. Every device gives the same results, so the choice never
+matters to multiplayer.
+
+`TerniStartOptions` (for `TerniWorld.Start`) is all zeros by default, so `new
+TerniStartOptions()` in C# means the same: `UseDevice` with `Device` names a device,
+`IgnoreRenderer` skips the renderer's GPU, `CacheOnly` never compiles rules.
+
 ### Visual Scripting
 
 Visual scripts can use `TerniWorld` and `TerniSimulation` like C# scripts can (tried
@@ -144,4 +159,6 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 
 ## Not done yet
 
-- Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
+- Shipping a software Vulkan driver, for machines whose GPUs cannot run the simulation.
+- The renderer's GPU on Windows with DirectX (the default there) is found by its adapter
+  LUID; this has not been run yet.

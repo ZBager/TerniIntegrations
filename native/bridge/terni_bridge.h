@@ -52,6 +52,26 @@ struct FieldInfo {
 std::vector<Device> devices(std::string& error);
 bool can_compile_rules();
 
+// ---- the renderer's GPU ----
+// What the host's renderer says about its GPU.
+struct RendererGpu {
+    bool has_uuid = false;  // Vulkan physical device UUID (not all zeros)
+    uint8_t uuid[16] = {};
+    bool has_luid = false;  // adapter LUID (DirectX, or Vulkan on Windows)
+    uint8_t luid[8] = {};
+    uint32_t vendor_id = 0;  // PCI vendor ID, and the device's name: the last resort
+    std::string name;
+};
+// From a Vulkan renderer's own objects: VkInstance, its vkGetInstanceProcAddr and the
+// VkPhysicalDevice it renders with. False if they are missing.
+bool vulkan_renderer_gpu(void* instance, void* get_instance_proc_addr, void* physical_device, RendererGpu& gpu);
+// For a DirectX renderer: DXGI adapter number `adapter_index`. False if there is no such
+// adapter, and always on systems other than Windows.
+bool dxgi_renderer_gpu(unsigned adapter_index, RendererGpu& gpu);
+// The usable device that is the renderer's GPU, or -1: matched by UUID, then LUID, then by
+// vendor and name if exactly one usable device has them.
+int find_device(const RendererGpu& gpu, std::string& error);
+
 class World {
 public:
     World();

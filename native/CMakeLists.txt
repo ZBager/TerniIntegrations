@@ -48,16 +48,19 @@ endif()
 message(STATUS "terni_compile_rules: shaderc ${TERNI_SHADERC_STATIC}" " (ON: linked in, OFF: shared libraries installed beside it)")
 
 set(TERNI_DIR "" CACHE PATH "Local Terni checkout to build instead of the pinned GitHub commit")
-set(TERNI_COMMIT bbc74ca9b01044370e877704d4ceed4391e81dbc)
+set(TERNI_COMMIT 0651ecdbcdc600f216b211f482ed227c79c44edd)
 set(FETCHCONTENT_SOURCE_DIR_TERNI "${TERNI_DIR}")  # empty: fetch the pinned commit
 include(FetchContent)
 FetchContent_Declare(terni GIT_REPOSITORY https://github.com/ZBager/Terni.git GIT_TAG ${TERNI_COMMIT})
 FetchContent_MakeAvailable(terni)
 
 # Terni behind a C++14 interface without exceptions, for engine modules (see the header).
-add_library(terni_bridge STATIC bridge/terni_bridge.cpp)
+add_library(terni_bridge STATIC bridge/terni_bridge.cpp bridge/renderer_gpu.cpp)
 target_link_libraries(terni_bridge PRIVATE Terni::runtime)
 target_compile_features(terni_bridge PRIVATE cxx_std_20)
+if(WIN32)
+  target_link_libraries(terni_bridge PUBLIC dxgi)  # the adapter LUID of a DirectX renderer
+endif()
 
 # Checks a game folder and fills its SPIR-V cache, without a GPU. Engine editors run it
 # as a separate process: they link Terni::runtime, which has no rule compiler, because

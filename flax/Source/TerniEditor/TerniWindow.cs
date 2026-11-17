@@ -83,8 +83,10 @@ namespace TerniEditor
         private static string DevicesText()
         {
             var text = new StringBuilder();
+            var renderer = TerniWorld.FindRendererDevice();
             foreach (var device in TerniWorld.GetDevices())
-                text.AppendLine($"{device.Index}: {device.Name} ({device.Type})" + (device.Usable ? "" : " - not usable: " + device.WhyNot));
+                text.AppendLine($"{device.Index}: {device.Name} ({device.Type})" + (device.Index == renderer ? ", the engine renders with it" : "") +
+                                (device.Usable ? "" : " - not usable: " + device.WhyNot));
             return text.Length == 0 ? "No Vulkan device found." : text.ToString().TrimEnd();
         }
 

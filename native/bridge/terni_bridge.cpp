@@ -38,6 +38,30 @@ std::vector<Device> devices(std::string& error) {
 
 bool can_compile_rules() { return terni::can_compile_rules(); }
 
+int find_device(const RendererGpu& gpu, std::string& error) {
+    error.clear();
+    try {
+        const auto devices = terni::VulkanContext::list_devices();
+        if (gpu.has_uuid)
+            for (const terni::DeviceInfo& d : devices)
+                if (d.usable && std::equal(d.uuid.begin(), d.uuid.end(), gpu.uuid)) return static_cast<int>(d.index);
+        if (gpu.has_luid)
+            for (const terni::DeviceInfo& d : devices)
+                if (d.usable && d.luid_valid && std::equal(d.luid.begin(), d.luid.end(), gpu.luid))
+                    return static_cast<int>(d.index);
+        // Some renderers' instances do not give the IDs (they come with Vulkan 1.1). Two
+        // identical GPUs cannot be told apart this way, so then there is no match.
+        int found = -1, count = 0;
+        if (gpu.vendor_id != 0 && !gpu.name.empty())
+            for (const terni::DeviceInfo& d : devices)
+                if (d.usable && d.vendor_id == gpu.vendor_id && d.name == gpu.name) found = static_cast<int>(d.index), ++count;
+        return count == 1 ? found : -1;
+    } catch (const std::exception& e) {
+        error = e.what();
+    }
+    return -1;
+}
+
 struct World::Impl {
     std::unique_ptr<terni::Game> game;
     std::unique_ptr<terni::GameSim> sim;

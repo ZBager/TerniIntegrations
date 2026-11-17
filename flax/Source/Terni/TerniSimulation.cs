@@ -52,13 +52,19 @@ namespace Terni
         /// <summary>
         /// Device index from TerniWorld.GetDevices(), or -1 to choose by Preference.
         /// </summary>
-        [EditorOrder(60), Tooltip("Device index from TerniWorld.GetDevices(), or -1 to choose by Preference.")]
+        [EditorOrder(60), Tooltip("Device index from TerniWorld.GetDevices(), or -1 to choose: the renderer's GPU with Match Renderer, otherwise by Preference.")]
         public int Device = -1;
+
+        /// <summary>
+        /// Run on the GPU the engine renders with (when Device is -1), if it can run the simulation.
+        /// </summary>
+        [EditorOrder(65), Tooltip("Run on the GPU the engine renders with (when Device is -1), if it can run the simulation.")]
+        public bool MatchRenderer = true;
 
         /// <summary>
         /// Which device to choose when Device is -1.
         /// </summary>
-        [EditorOrder(70), Tooltip("Which device to choose when Device is -1.")]
+        [EditorOrder(70), Tooltip("Which device to choose when Device is -1 and the renderer's GPU is not used.")]
         public TerniDevicePreference Preference = TerniDevicePreference.Discrete;
 
         /// <summary>
@@ -142,10 +148,12 @@ namespace Terni
             World = new TerniWorld();
             var options = new TerniStartOptions
             {
-                Device = Device,
+                UseDevice = Device >= 0,
+                Device = Math.Max(Device, 0),
+                IgnoreRenderer = !MatchRenderer,
                 Preference = Preference,
                 CacheFolder = string.IsNullOrEmpty(CacheFolder) ? "" : ResolveFolder(CacheFolder),
-                CompileRules = CompileRules,
+                CacheOnly = !CompileRules,
             };
             var ok = World.Load(ResolveFolder(GameFolder));
             if (ok && StartInBackground)

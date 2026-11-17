@@ -40,7 +40,7 @@ namespace Game
                     var world = new TerniWorld();
                     Check(world.Load(folder), $"[{device.Name}] load");
                     // In the background; frames would go on meanwhile.
-                    Check(world.BeginStart(new TerniStartOptions { Device = device.Index, CompileRules = true }), $"[{device.Name}] begin start");
+                    Check(world.BeginStart(new TerniStartOptions { UseDevice = true, Device = device.Index }), $"[{device.Name}] begin start");
                     var polls = 0;
                     while (!world.StartReady())
                         polls++;
@@ -94,6 +94,34 @@ namespace Game
 
                     world.Stop();
                     Check(!world.IsRunning && !world.Tick(), $"[{device.Name}] stopped");
+                    FlaxEngine.Object.Destroy(world);
+                }
+
+                // The GPU the engine renders with: found, used by default, and not when told otherwise.
+                var gpu = GPUDevice.Instance;
+                var renderer = TerniWorld.FindRendererDevice();
+                log.WriteLine($"      the engine renders with {gpu?.RendererType} on {gpu?.Adapter?.Description}: Terni device {renderer}");
+                var expectRenderer = gpu != null && gpu.RendererType != RendererType.Null && devices.Any(d => d.Usable && d.Name == gpu.Adapter.Description);
+                Check(!expectRenderer || renderer >= 0, "the renderer's GPU is found among Terni's devices");
+                if (renderer >= 0)
+                {
+                    var name = devices.First(d => d.Index == renderer).Name;
+                    var other = devices.FirstOrDefault(d => d.Usable && d.Index != renderer);
+                    var world = new TerniWorld();
+                    // A preference for another kind of device must not win over the renderer's GPU.
+                    var preference = devices.First(d => d.Index == renderer).IsCpu ? TerniDevicePreference.Discrete : TerniDevicePreference.Cpu;
+                    Check(world.Load(folder) && world.Start(new TerniStartOptions { Preference = preference }) && world.DeviceName == name,
+                          $"by default the simulation runs on the renderer's GPU ({world.DeviceName})");
+                    if (other.Name != null)
+                    {
+                        var cpu = devices.FirstOrDefault(d => d.Usable && d.IsCpu && d.Index != renderer);
+                        if (cpu.Name != null)
+                            Check(world.Start(new TerniStartOptions { IgnoreRenderer = true, Preference = TerniDevicePreference.Cpu }) && world.DeviceName == cpu.Name,
+                                  $"IgnoreRenderer lets the preference decide ({world.DeviceName})");
+                        Check(world.Start(new TerniStartOptions { UseDevice = true, Device = other.Index }) && world.DeviceName == other.Name,
+                              $"UseDevice wins over the renderer's GPU ({world.DeviceName})");
+                    }
+                    world.Stop();
                     FlaxEngine.Object.Destroy(world);
                 }
 

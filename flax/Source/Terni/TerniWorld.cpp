@@ -6,6 +6,8 @@
 
 #include "Engine/Core/Log.h"
 #include "Engine/Engine/Engine.h"
+#include "Engine/Graphics/GPUAdapter.h"
+#include "Engine/Graphics/GPUDevice.h"
 #include "Engine/Platform/CreateProcessSettings.h"
 #include "Engine/Platform/FileSystem.h"
 #include "Engine/Platform/Platform.h"
@@ -84,6 +86,35 @@ namespace
             return StringUtils::GetDirectoryName(ToFlax(info.dli_fname));
 #endif
         return String::Empty;
+    }
+
+    // The ID of the GPU the engine renders with, from the renderer's own objects. Main thread.
+    void RendererGpu(terni_bridge::RendererGpu& gpu)
+    {
+        GPUDevice* device = GPUDevice::Instance;
+        GPUAdapter* adapter = device ? device->GetAdapter() : nullptr;
+        if (!adapter)
+            return;
+        switch (device->GetRendererType())
+        {
+        case RendererType::Vulkan:
+        {
+            // VkInstance, VkDevice, vkGetInstanceProcAddr, vkGetDeviceProcAddr
+            void** native = (void**)device->GetNativePtr();
+            if (native)
+                terni_bridge::vulkan_renderer_gpu(native[0], native[2], adapter->GetNativePtr(), gpu);
+            break;
+        }
+        case RendererType::DirectX10:
+        case RendererType::DirectX10_1:
+        case RendererType::DirectX11:
+        case RendererType::DirectX12:
+            // The adapter's index in DXGI's list of adapters.
+            terni_bridge::dxgi_renderer_gpu((unsigned)(intptr)adapter->GetNativePtr(), gpu);
+            break;
+        default:
+            break;
+        }
     }
 
     String CompilerPath()
@@ -177,6 +208,17 @@ Array<TerniDevice> TerniWorld::GetDevices()
     return out;
 }
 
+int32 TerniWorld::FindRendererDevice()
+{
+    terni_bridge::RendererGpu gpu;
+    RendererGpu(gpu);
+    std::string error;
+    const int index = terni_bridge::find_device(gpu, error);
+    if (!error.empty())
+        LOG(Error, "[Terni] {0}", ToFlax(error));
+    return index;
+}
+
 Array<TerniWorld*> TerniWorld::GetWorlds()
 {
     Array<TerniWorld*> out;
@@ -248,11 +290,21 @@ struct TerniWorld::StartJob
     bool cacheFirst = false; // try the cache alone before running the compiler
     String folder, cache;
     String failure; // empty: started
+    bool matchRenderer = false;
+    terni_bridge::RendererGpu gpu;
+    int renderer = -1; // the renderer's device, if it is to be used and can run the simulation
     std::atomic<bool> done { false };
     std::thread thread;
 
     void Run()
     {
+        if (matchRenderer)
+        {
+            std::string error;
+            renderer = terni_bridge::find_device(gpu, error);
+            if (renderer >= 0)
+                options.device = renderer; // otherwise the preference decides
+        }
         if (cacheFirst)
         {
             // From the cache first: a shipped game has every rule there and needs no compiler.
@@ -300,12 +352,17 @@ TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
     job->bridge = _bridge;
     job->folder = _folder;
     job->cache = options.CacheFolder.HasChars() ? options.CacheFolder : _folder / TEXT("spirv");
-    job->options.device = options.Device;
+    job->options.device = options.UseDevice ? Math::Max(options.Device, 0) : -1;
     job->options.preference = (int)options.Preference;
     job->options.cache_dir = ToStd(job->cache);
-    job->options.cache_only = !options.CompileRules;
+    job->options.cache_only = options.CacheOnly;
     job->options.validation = options.Validation;
-    job->cacheFirst = options.CompileRules && !terni_bridge::can_compile_rules();
+    job->cacheFirst = !options.CacheOnly && !terni_bridge::can_compile_rules();
+    if (!options.UseDevice && !options.IgnoreRenderer)
+    {
+        job->matchRenderer = true;
+        RendererGpu(job->gpu);
+    }
     return job;
 }
 
@@ -316,7 +373,9 @@ bool TerniWorld::FinishStart() const
     if (job->thread.joinable())
         job->thread.join();
     const bool ok = job->failure.IsEmpty();
-    if (ok)
+    if (ok && job->renderer >= 0)
+        LOG(Info, "[Terni] {0} runs on {1}, the GPU the engine renders with", _folder, ToFlax(_bridge->device_name()));
+    else if (ok)
         LOG(Info, "[Terni] {0} runs on {1}", _folder, ToFlax(_bridge->device_name()));
     else
         Fail(job->failure);

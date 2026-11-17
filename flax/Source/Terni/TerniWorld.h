@@ -69,14 +69,26 @@ API_STRUCT() struct TERNI_API TerniDevice
 };
 
 /// <summary>
-/// How TerniWorld.Start runs a loaded game.
+/// How TerniWorld.Start runs a loaded game. Every member is zero, false or empty by
+/// default, so a new TerniStartOptions in C# (which fills structs with zeros) or in a
+/// visual script means: choose the device (the renderer's GPU, else by Preference), and
+/// compile rules that are missing from the cache.
 /// </summary>
 API_STRUCT() struct TERNI_API TerniStartOptions
 {
     DECLARE_SCRIPTING_TYPE_MINIMAL(TerniStartOptions);
 
-    /// <summary>Device index from TerniWorld.GetDevices(), or -1 to choose by Preference.</summary>
-    API_FIELD() int32 Device = -1;
+    /// <summary>Run on Device instead of choosing one.</summary>
+    API_FIELD() bool UseDevice = false;
+    /// <summary>With UseDevice: a device index from TerniWorld.GetDevices().</summary>
+    API_FIELD() int32 Device = 0;
+    /// <summary>
+    /// When choosing: do not prefer the GPU the engine renders with. By default the
+    /// simulation runs on that GPU if it can, which keeps a laptop from waking a second
+    /// GPU and follows the player's choice of GPU for the game.
+    /// </summary>
+    API_FIELD() bool IgnoreRenderer = false;
+    /// <summary>When choosing, and the renderer's GPU is not used: which kind of device first.</summary>
     API_FIELD() TerniDevicePreference Preference = TerniDevicePreference::Discrete;
     /// <summary>
     /// Folder of the compiled rules (SPIR-V). Empty: the folder "spirv" inside the game folder.
@@ -84,10 +96,11 @@ API_STRUCT() struct TERNI_API TerniStartOptions
     /// </summary>
     API_FIELD() String CacheFolder;
     /// <summary>
-    /// Compile rules that are not in the cache yet, with the terni_compile_rules program
-    /// that comes with the plugin. Without it, a rule missing from the cache is an error.
+    /// Never compile rules: every rule must be in the cache folder, and a missing one is an
+    /// error. By default, rules that are new or have changed are compiled with the
+    /// terni_compile_rules program that comes with the plugin.
     /// </summary>
-    API_FIELD() bool CompileRules = true;
+    API_FIELD() bool CacheOnly = false;
     /// <summary>Run Terni's own Vulkan device with the validation layers (slow; for debugging).</summary>
     API_FIELD() bool Validation = false;
 };
@@ -175,6 +188,12 @@ public:
 
     /// <summary>The Vulkan devices of this machine.</summary>
     API_FUNCTION() static Array<TerniDevice> GetDevices();
+
+    /// <summary>
+    /// The device the engine renders with, as an index from GetDevices(); -1 if it cannot run
+    /// the simulation or the renderer cannot tell (e.g. a headless or null renderer).
+    /// </summary>
+    API_FUNCTION() static int32 FindRendererDevice();
 
     /// <summary>The worlds that are loaded or running, for editor tools.</summary>
     API_FUNCTION() static Array<TerniWorld*> GetWorlds();
