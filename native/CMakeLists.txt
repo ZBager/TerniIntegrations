@@ -33,6 +33,7 @@ find_path(TERNI_SHADERC_INCLUDE shaderc/shaderc.hpp HINTS ${Vulkan_INCLUDE_DIRS}
 set(TERNI_SHADERC_STATIC OFF)
 if(TERNI_SHADERC_COMBINED AND TERNI_SHADERC_INCLUDE)
   include(CheckCXXSourceCompiles)
+  set(CMAKE_TRY_COMPILE_CONFIGURATION Release)  # MSVC: the SDK's library is built for the release runtime
   set(CMAKE_REQUIRED_INCLUDES ${TERNI_SHADERC_INCLUDE})
   set(CMAKE_REQUIRED_LIBRARIES ${TERNI_SHADERC_COMBINED} Threads::Threads)
   check_cxx_source_compiles("#include <shaderc/shaderc.hpp>
