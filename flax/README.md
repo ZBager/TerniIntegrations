@@ -4,7 +4,8 @@ A Flax plugin that runs a [Terni](https://github.com/ZBager/Terni) game folder f
 C++, C# and Visual Scripting. The simulation runs on a Vulkan device of its own, next
 to the renderer, and gives the same results on every machine.
 
-Made for Flax 1.13 on Linux and Windows. **Only Linux has been run so far.**
+Made for Flax 1.13 on Linux and Windows. Both run the self-test in the editor; cooked
+games have only been tried on Linux.
 
 ## Install
 
@@ -107,12 +108,13 @@ FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
 
 It runs the galaxy for 200 ticks on every Vulkan device of the machine, with blocking
 and background ticks and through a save, and compares the state hash with the one
-Terni's own tools give. `./test.sh --cooked` cooks the example for Linux first, changes
+Terni's own tools give. (On Windows: `test.bat`. The test makes wrong calls on purpose,
+so the editor's log ends with a few `[Terni]` errors even when it passes.) `./test.sh --cooked` cooks the example for Linux first, changes
 a rule in the cooked game as a mod would, and runs the same test there.
 
 ## Not done yet
 
-- Windows: the build scripts are written and have never been run.
+- Windows: cooking a game has not been tried.
 - Stopping worlds when scripts reload in the editor is in place and has not been tested.
 - Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
