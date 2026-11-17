@@ -13,7 +13,11 @@ Linux, from GDScript and C#, with a Terni tab in the debugger; Windows is next.
 
 ```sh
 godot/build.sh        # needs CMake, Ninja, Python 3, Git, a C++20 compiler, the Vulkan headers and shaderc
+godot\build.bat       # Windows: CMake, Git, Python 3, Visual Studio 2022 or newer, the Vulkan SDK
 ```
+
+On Windows the library uses the shared C++ runtime (as Terni's libraries do), so a
+game needs the Visual C++ runtime, which most Windows machines have.
 
 This puts the addon in `addons/terni` (the library in `bin/`) and copies it into the
 example project. To use it in a project, copy `addons/terni` into the project's
@@ -123,6 +127,9 @@ Keep `Terni-NOTICES.txt` with the game: it is the notice Terni's licence asks fo
 the licences of the libraries that come with the compiler.
 
 ## Test
+
+On Windows: `test.bat`, `test.bat window` and `test.bat csharp`, with `GODOT` and
+`GODOT_MONO` set to the Godot programs.
 
 ```sh
 godot/test.sh                          # headless

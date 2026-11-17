@@ -13,6 +13,8 @@ endif()
 
 # godot-cpp, pinned. An extension built for 4.5 also loads in later 4.x versions.
 set(GODOTCPP_TARGET template_release CACHE STRING "")
+# The shared C++ runtime (/MD), as the Terni libraries use: MSVC cannot mix the two.
+set(GODOTCPP_USE_STATIC_CPP OFF CACHE BOOL "")
 include(FetchContent)
 FetchContent_Declare(godot-cpp GIT_REPOSITORY https://github.com/godotengine/godot-cpp.git
                      GIT_TAG godot-4.5-stable GIT_SHALLOW TRUE)
