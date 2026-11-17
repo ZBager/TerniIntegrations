@@ -57,13 +57,17 @@ public class Towns : Script
 ```
 
 - **`TerniSimulation`** (script): game folder, ticks per second, pause, `Step()`,
-  device choice; events `Started`, `TickCompleted`, `Failed`.
+  device choice; events `Started`, `TickCompleted`, `Failed`. It starts the world in
+  the background (compiling changed rules, making the device ready, uploading the
+  starting state) while frames go on; `Started` follows a few frames later.
 - **`TerniWorld`** (object, also for C++ and Visual Scripting): `Load`, `Start`,
   `Tick` / `BeginTick` / `TickReady` / `EndTick`, `ReadField`, `WriteField`,
   `WriteValue`, `Subscribe`, `CreateEntity` / `DestroyEntity`, `AddModifier` and
   the other modifier calls, `Save` / `LoadSave`, `Checksum`, `GetStateHash`,
   `GetDevices`, `MoveToDevice`. Functions that return `bool` return true when they
-  worked; after false, `LastError` says why, and the log has it too.
+  worked; after false, `LastError` says why, and the log has it too. `BeginStart`,
+  `StartReady` and `EndStart` start a world without holding up the frame; any other
+  call made during a start waits for it.
 - **`TerniValue`**: raw values to numbers for display, and back.
 - **Script reloads** in the editor free every world (device and game data) before the
   plugin's code is replaced. A script that still holds a `TerniWorld` afterwards finds
@@ -128,7 +132,6 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 
 ## Not done yet
 
-- Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
 - Visual Scripting: `TerniWorld` and `TerniSimulation` are open to it like any scripting
   type; no graph has been made with them yet.

@@ -39,7 +39,12 @@ namespace Game
                 {
                     var world = new TerniWorld();
                     Check(world.Load(folder), $"[{device.Name}] load");
-                    Check(world.Start(new TerniStartOptions { Device = device.Index, CompileRules = true }), $"[{device.Name}] start: {world.LastError}");
+                    // In the background; frames would go on meanwhile.
+                    Check(world.BeginStart(new TerniStartOptions { Device = device.Index, CompileRules = true }), $"[{device.Name}] begin start");
+                    var polls = 0;
+                    while (!world.StartReady())
+                        polls++;
+                    Check(world.IsRunning && !world.IsStarting, $"[{device.Name}] started in the background ({polls} polls): {world.LastError}");
                     var planet = world.Entity("planet");
                     var pop = world.Subscribe(planet, "pop");
 
@@ -91,6 +96,13 @@ namespace Game
                     Check(!world.IsRunning && !world.Tick(), $"[{device.Name}] stopped");
                     FlaxEngine.Object.Destroy(world);
                 }
+
+                // A call made while a start is in flight waits for it.
+                var eager = new TerniWorld();
+                Check(eager.Load(folder) && eager.BeginStart(new TerniStartOptions()) && eager.Tick() && eager.Ticks == 1,
+                      "a tick right after BeginStart waits for the start");
+                eager.Stop();
+                FlaxEngine.Object.Destroy(eager);
 
                 // A folder with a mistake reports file:line and does not start.
                 var broken = new TerniWorld();

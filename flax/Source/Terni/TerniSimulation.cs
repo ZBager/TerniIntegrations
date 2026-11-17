@@ -68,6 +68,13 @@ namespace Terni
         public bool CompileRules = true;
 
         /// <summary>
+        /// Start in the background: the world starts on a worker thread while frames go on,
+        /// and Started comes in a later frame. Off: StartWorld() returns once it has started.
+        /// </summary>
+        [EditorOrder(90), Tooltip("Start in the background: frames go on while the world starts, and Started comes in a later frame.")]
+        public bool StartInBackground = true;
+
+        /// <summary>
         /// The world started and its starting state is on the device.
         /// </summary>
         public event Action<TerniSimulation> Started;
@@ -111,9 +118,16 @@ namespace Terni
         }
 
         /// <summary>
-        /// Loads the game folder and starts the world. Stops a running one first.
+        /// The world is starting in the background.
         /// </summary>
-        /// <returns>True if the world is running.</returns>
+        [HideInEditor, NoSerialize]
+        public bool IsStarting => World != null && World.IsStarting;
+
+        /// <summary>
+        /// Loads the game folder and starts the world. Stops a running one first. With
+        /// StartInBackground the start goes on after this returns; Started or Failed follows.
+        /// </summary>
+        /// <returns>True if the world is running, or starting in the background.</returns>
         public bool StartWorld()
         {
             StopWorld();
@@ -125,16 +139,32 @@ namespace Terni
                 CacheFolder = string.IsNullOrEmpty(CacheFolder) ? "" : ResolveFolder(CacheFolder),
                 CompileRules = CompileRules,
             };
-            if (!World.Load(ResolveFolder(GameFolder)) || !World.Start(options))
+            var ok = World.Load(ResolveFolder(GameFolder));
+            if (ok && StartInBackground)
+                ok = World.BeginStart(options);
+            else if (ok)
+                ok = World.Start(options);
+            if (!ok)
             {
-                var error = World.LastError;
-                StopWorld();
-                Failed?.Invoke(this, error);
+                FailStart();
                 return false;
             }
+            if (!StartInBackground)
+                OnStarted();
+            return true;
+        }
+
+        private void OnStarted()
+        {
             _due = 0;
             Started?.Invoke(this);
-            return true;
+        }
+
+        private void FailStart()
+        {
+            var error = World.LastError;
+            StopWorld();
+            Failed?.Invoke(this, error);
         }
 
         /// <summary>
@@ -179,6 +209,17 @@ namespace Terni
         /// <inheritdoc />
         public override void OnUpdate()
         {
+            if (IsStarting)
+            {
+                if (!World.StartReady())
+                    return;
+                if (!World.IsRunning)
+                {
+                    FailStart();
+                    return;
+                }
+                OnStarted();
+            }
             if (!IsRunning)
                 return;
 

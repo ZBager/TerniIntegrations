@@ -20,6 +20,7 @@ namespace Game
         private TerniSimulation _simulation;
         private int _planet, _pop;
         private Label _label;
+        private int _exitIn = -1;
 
         /// <inheritdoc />
         public override void OnStart()
@@ -42,7 +43,9 @@ namespace Game
             {
                 _simulation.Paused = true;
                 SelfTest.Run(_simulation, test);
-                Engine.RequestExit();
+                // Quit a little later: the engine does not like being closed while it is
+                // still loading the scene's assets.
+                _exitIn = 30;
                 return;
             }
             _label = new Label
@@ -58,6 +61,13 @@ namespace Game
                 Setup();
             else
                 _simulation.Started += s => Setup();
+        }
+
+        /// <inheritdoc />
+        public override void OnUpdate()
+        {
+            if (_exitIn > 0 && --_exitIn == 0)
+                Engine.RequestExit();
         }
 
         /// <inheritdoc />

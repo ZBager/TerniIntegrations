@@ -206,8 +206,25 @@ public:
     /// </summary>
     API_FUNCTION() bool SetCapacity(int32 entity, int32 rows);
 
-    /// <summary>Starts the loaded game on a device: compiles the rules if needed, then uploads the starting state.</summary>
+    /// <summary>
+    /// Starts the loaded game on a device: compiles the rules if needed, then uploads the
+    /// starting state. Takes from a fraction of a second to a few seconds; BeginStart() does
+    /// the same without holding up the frame.
+    /// </summary>
     API_FUNCTION() bool Start(const TerniStartOptions& options);
+    /// <summary>
+    /// Starts like Start(), on a worker thread, and returns at once. Check StartReady()
+    /// each frame; once it is true, IsRunning says whether the world started and LastError
+    /// why not. Other calls made before that wait for the start to finish.
+    /// </summary>
+    /// <returns>False if no game is loaded.</returns>
+    API_FUNCTION() bool BeginStart(const TerniStartOptions& options);
+    /// <summary>The start begun by BeginStart() is over (or none was begun). Never waits.</summary>
+    API_FUNCTION() bool StartReady();
+    /// <summary>Waits for the start begun by BeginStart(). Returns whether the world runs.</summary>
+    API_FUNCTION() bool EndStart();
+    /// <summary>BeginStart() was called and StartReady() or EndStart() has not seen it end yet.</summary>
+    API_PROPERTY() bool GetIsStarting() const;
 
     /// <summary>Stops the simulation and frees its device. The game stays loaded.</summary>
     API_FUNCTION() void Stop();
@@ -346,13 +363,19 @@ public:
     API_FUNCTION() String GetReport() const;
 
 private:
+    struct StartJob;
     terni_bridge::World* _bridge;
+    mutable StartJob* _start = nullptr;
     String _folder;
     mutable String _lastError;
     Array<String> _errors;
     Array<String> _warnings;
 
     bool Fail(const String& what) const;
+    // The bridge, once a start in flight has finished (waits for it).
+    terni_bridge::World* Bridge() const;
+    StartJob* PrepareStart(const TerniStartOptions& options);
+    bool FinishStart() const;
     // Scripts are reloading: frees everything every world holds. The world objects
     // themselves may outlive the reload (a script can still reference one).
     static void UnloadAll();

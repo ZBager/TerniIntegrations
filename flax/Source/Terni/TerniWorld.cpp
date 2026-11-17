@@ -12,6 +12,9 @@
 #include "Engine/Platform/StringUtils.h"
 #include "Engine/Scripting/Scripting.h"
 
+#include <atomic>
+#include <thread>
+
 #if PLATFORM_WINDOWS
 #include "Engine/Platform/Win32/IncludeWindowsHeaders.h"
 #else
@@ -118,7 +121,7 @@ void TerniWorld::UnloadAll()
     {
         if (!world->IsLoaded())
             continue;
-        world->_bridge->unload();
+        world->Bridge()->unload();
         world->_errors.Clear();
         world->_warnings.Clear();
         count++;
@@ -137,6 +140,7 @@ TerniWorld::TerniWorld(const SpawnParams& params)
 TerniWorld::~TerniWorld()
 {
     Worlds.Remove(this);
+    Bridge();
     delete _bridge;
 }
 
@@ -149,8 +153,8 @@ bool TerniWorld::Fail(const String& what) const
 
 void TerniWorld::Report() const
 {
-    if (!_bridge->error().empty())
-        Fail(ToFlax(_bridge->error()));
+    if (!Bridge()->error().empty())
+        Fail(ToFlax(Bridge()->error()));
 }
 
 Array<TerniDevice> TerniWorld::GetDevices()
@@ -216,11 +220,11 @@ bool TerniWorld::Load(const StringView& gameFolder)
     _warnings.Clear();
     if (!FileSystem::DirectoryExists(gameFolder))
     {
-        _bridge->stop();
+        Bridge()->stop();
         return Fail(String::Format(TEXT("there is no game folder {0}"), gameFolder));
     }
     std::vector<std::string> errors, warnings;
-    const bool ok = _bridge->load(ToStd(gameFolder), errors, warnings);
+    const bool ok = Bridge()->load(ToStd(gameFolder), errors, warnings);
     _errors = ToFlax(errors);
     _warnings = ToFlax(warnings);
     for (const String& warning : _warnings)
@@ -232,186 +236,277 @@ bool TerniWorld::Load(const StringView& gameFolder)
 
 bool TerniWorld::SetCapacity(int32 entity, int32 rows)
 {
-    return Checked(_bridge->set_capacity(entity, rows));
+    return Checked(Bridge()->set_capacity(entity, rows));
+}
+
+// A start: what PrepareStart() worked out on the main thread, then the work, which needs
+// nothing of the TerniWorld but its bridge and may run on any thread.
+struct TerniWorld::StartJob
+{
+    terni_bridge::World* bridge = nullptr;
+    terni_bridge::StartOptions options;
+    bool cacheFirst = false; // try the cache alone before running the compiler
+    String folder, cache;
+    String failure; // empty: started
+    std::atomic<bool> done { false };
+    std::thread thread;
+
+    void Run()
+    {
+        if (cacheFirst)
+        {
+            // From the cache first: a shipped game has every rule there and needs no compiler.
+            // Only when that fails (a rule is new or has changed) is the compiler run.
+            terni_bridge::StartOptions o = options;
+            o.cache_only = true;
+            if (bridge->start(o))
+            {
+                done = true;
+                return;
+            }
+            if (CompilerPath().HasChars())
+            {
+                String output;
+                if (!CompileRules(folder, cache, output))
+                {
+                    failure = String::Format(TEXT("the rules did not compile:\n{0}"), output);
+                    done = true;
+                    return;
+                }
+            }
+        }
+        if (!bridge->start(options))
+            failure = ToFlax(bridge->error());
+        done = true;
+    }
+};
+
+terni_bridge::World* TerniWorld::Bridge() const
+{
+    if (_start)
+        FinishStart();
+    return _bridge;
+}
+
+TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
+{
+    if (!Bridge()->loaded())
+    {
+        Fail(TEXT("no game is loaded"));
+        return nullptr;
+    }
+    Bridge()->stop();
+    StartJob* job = new StartJob();
+    job->bridge = _bridge;
+    job->folder = _folder;
+    job->cache = options.CacheFolder.HasChars() ? options.CacheFolder : _folder / TEXT("spirv");
+    job->options.device = options.Device;
+    job->options.preference = (int)options.Preference;
+    job->options.cache_dir = ToStd(job->cache);
+    job->options.cache_only = !options.CompileRules;
+    job->options.validation = options.Validation;
+    job->cacheFirst = options.CompileRules && !terni_bridge::can_compile_rules();
+    return job;
+}
+
+bool TerniWorld::FinishStart() const
+{
+    StartJob* job = _start;
+    _start = nullptr;
+    if (job->thread.joinable())
+        job->thread.join();
+    const bool ok = job->failure.IsEmpty();
+    if (ok)
+        LOG(Info, "[Terni] {0} runs on {1}", _folder, ToFlax(_bridge->device_name()));
+    else
+        Fail(job->failure);
+    delete job;
+    return ok;
 }
 
 bool TerniWorld::Start(const TerniStartOptions& options)
 {
-    if (!_bridge->loaded())
-        return Fail(TEXT("no game is loaded"));
-    _bridge->stop();
-    const String cache = options.CacheFolder.HasChars() ? options.CacheFolder : _folder / TEXT("spirv");
-    terni_bridge::StartOptions o;
-    o.device = options.Device;
-    o.preference = (int)options.Preference;
-    o.cache_dir = ToStd(cache);
-    o.cache_only = !options.CompileRules;
-    o.validation = options.Validation;
-    if (options.CompileRules && !terni_bridge::can_compile_rules())
-    {
-        // From the cache first: a shipped game has every rule there and needs no compiler.
-        // Only when that fails (a rule is new or has changed) is the compiler run.
-        o.cache_only = true;
-        if (_bridge->start(o))
-        {
-            LOG(Info, "[Terni] {0} runs on {1}", _folder, GetDeviceName());
-            return true;
-        }
-        if (CompilerPath().HasChars())
-        {
-            String output;
-            if (!CompileRules(_folder, cache, output))
-                return Fail(String::Format(TEXT("the rules did not compile:\n{0}"), output));
-        }
-    }
-    if (!Checked(_bridge->start(o)))
+    StartJob* job = PrepareStart(options);
+    if (!job)
         return false;
-    LOG(Info, "[Terni] {0} runs on {1}", _folder, GetDeviceName());
+    job->Run();
+    _start = job;
+    return FinishStart();
+}
+
+bool TerniWorld::BeginStart(const TerniStartOptions& options)
+{
+    StartJob* job = PrepareStart(options);
+    if (!job)
+        return false;
+    _start = job;
+    job->thread = std::thread([job] { job->Run(); });
     return true;
+}
+
+bool TerniWorld::StartReady()
+{
+    if (_start && !_start->done)
+        return false;
+    if (_start)
+        FinishStart();
+    return true;
+}
+
+bool TerniWorld::EndStart()
+{
+    if (_start)
+        FinishStart();
+    return IsRunning();
+}
+
+bool TerniWorld::GetIsStarting() const
+{
+    return _start != nullptr;
 }
 
 void TerniWorld::Stop()
 {
-    _bridge->stop();
+    Bridge()->stop();
 }
 
 bool TerniWorld::IsLoaded() const
 {
-    return _bridge->loaded();
+    return _bridge->loaded(); // a start does not change it: no need to wait
 }
 
 bool TerniWorld::IsRunning() const
 {
-    return _bridge->running();
+    return !_start && _bridge->running();
 }
 
 bool TerniWorld::Tick()
 {
-    return Checked(_bridge->tick());
+    return Checked(Bridge()->tick());
 }
 
 bool TerniWorld::BeginTick()
 {
-    return Checked(_bridge->begin_tick());
+    return Checked(Bridge()->begin_tick());
 }
 
 bool TerniWorld::TickReady()
 {
-    return Checked(_bridge->tick_ready());
+    return Checked(Bridge()->tick_ready());
 }
 
 bool TerniWorld::EndTick()
 {
-    return Checked(_bridge->end_tick());
+    return Checked(Bridge()->end_tick());
 }
 
 bool TerniWorld::GetTickInFlight() const
 {
-    return _bridge->tick_in_flight();
+    return Bridge()->tick_in_flight();
 }
 
 uint64 TerniWorld::GetTicks() const
 {
-    return _bridge->ticks();
+    return Bridge()->ticks();
 }
 
 double TerniWorld::GetLastTickMs() const
 {
-    return _bridge->last_tick_ms();
+    return Bridge()->last_tick_ms();
 }
 
 double TerniWorld::GetLastTickGpuMs() const
 {
-    return _bridge->last_tick_gpu_ms();
+    return Bridge()->last_tick_gpu_ms();
 }
 
 Array<String> TerniWorld::GetEntities() const
 {
-    return ToFlax(_bridge->entities());
+    return ToFlax(Bridge()->entities());
 }
 
 int32 TerniWorld::FindEntity(const StringView& name) const
 {
-    return _bridge->find_entity(ToStd(name));
+    return Bridge()->find_entity(ToStd(name));
 }
 
 int32 TerniWorld::GetCapacity(int32 entity) const
 {
-    return _bridge->capacity(entity);
+    return Bridge()->capacity(entity);
 }
 
 bool TerniWorld::IsDynamic(int32 entity) const
 {
-    return _bridge->dynamic(entity);
+    return Bridge()->dynamic(entity);
 }
 
 Array<String> TerniWorld::GetFields(int32 entity) const
 {
-    return ToFlax(_bridge->fields(entity));
+    return ToFlax(Bridge()->fields(entity));
 }
 
 bool TerniWorld::HasField(int32 entity, const StringView& field) const
 {
     terni_bridge::FieldInfo info;
-    return _bridge->field_info(entity, ToStd(field), info);
+    return Bridge()->field_info(entity, ToStd(field), info);
 }
 
 TerniFieldType TerniWorld::GetFieldType(int32 entity, const StringView& field) const
 {
     terni_bridge::FieldInfo info;
-    return _bridge->field_info(entity, ToStd(field), info) ? (TerniFieldType)info.type : TerniFieldType::Int;
+    return Bridge()->field_info(entity, ToStd(field), info) ? (TerniFieldType)info.type : TerniFieldType::Int;
 }
 
 int32 TerniWorld::GetFieldSize(int32 entity, const StringView& field) const
 {
     terni_bridge::FieldInfo info;
-    return _bridge->field_info(entity, ToStd(field), info) ? info.size : 0;
+    return Bridge()->field_info(entity, ToStd(field), info) ? info.size : 0;
 }
 
 int32 TerniWorld::FindRow(int32 entity, const StringView& id) const
 {
-    return _bridge->find_row(entity, ToStd(id));
+    return Bridge()->find_row(entity, ToStd(id));
 }
 
 String TerniWorld::GetRowId(int32 entity, int32 row) const
 {
-    return ToFlax(_bridge->row_id(entity, row));
+    return ToFlax(Bridge()->row_id(entity, row));
 }
 
 bool TerniWorld::GetDefine(const StringView& name, int32& raw) const
 {
-    return _bridge->define(ToStd(name), raw);
+    return Bridge()->define(ToStd(name), raw);
 }
 
 Array<String> TerniWorld::GetBundles() const
 {
-    return ToFlax(_bridge->bundles());
+    return ToFlax(Bridge()->bundles());
 }
 
 int32 TerniWorld::FindBundle(const StringView& name) const
 {
-    return _bridge->find_bundle(ToStd(name));
+    return Bridge()->find_bundle(ToStd(name));
 }
 
 Array<String> TerniWorld::GetModifierKeys() const
 {
-    return ToFlax(_bridge->modifier_keys());
+    return ToFlax(Bridge()->modifier_keys());
 }
 
 int32 TerniWorld::FindModifierKey(const StringView& name) const
 {
-    return _bridge->find_modifier_key(ToStd(name));
+    return Bridge()->find_modifier_key(ToStd(name));
 }
 
 uint64 TerniWorld::GetChecksum() const
 {
-    return Checked(_bridge->checksum());
+    return Checked(Bridge()->checksum());
 }
 
 Array<int32> TerniWorld::ReadField(int32 entity, const StringView& field, int32 firstRow, int32 rows)
 {
     std::vector<int32_t> words;
-    Checked(_bridge->read_field(entity, ToStd(field), firstRow, rows, words));
+    Checked(Bridge()->read_field(entity, ToStd(field), firstRow, rows, words));
     Array<int32> out;
     out.Set(words.data(), (int32)words.size());
     return out;
@@ -419,27 +514,27 @@ Array<int32> TerniWorld::ReadField(int32 entity, const StringView& field, int32 
 
 bool TerniWorld::WriteField(int32 entity, const StringView& field, int32 row, const Span<int32>& words)
 {
-    return Checked(_bridge->write_field(entity, ToStd(field), row, words.Get(), (size_t)words.Length()));
+    return Checked(Bridge()->write_field(entity, ToStd(field), row, words.Get(), (size_t)words.Length()));
 }
 
 bool TerniWorld::WriteValue(int32 entity, const StringView& field, int32 row, int32 raw, int32 index)
 {
     const std::string name = ToStd(field);
     terni_bridge::FieldInfo info;
-    if (!_bridge->field_info(entity, name, info))
+    if (!Bridge()->field_info(entity, name, info))
         return Fail(TEXT("no such field"));
     const int32 words[2] = { raw, raw < 0 ? -1 : 0 }; // money64: low, high
-    return Checked(_bridge->write_values(entity, name, row, index, words, (size_t)info.words));
+    return Checked(Bridge()->write_values(entity, name, row, index, words, (size_t)info.words));
 }
 
 bool TerniWorld::WriteValues(int32 entity, const StringView& field, int32 row, int32 index, const Span<int32>& words)
 {
-    return Checked(_bridge->write_values(entity, ToStd(field), row, index, words.Get(), (size_t)words.Length()));
+    return Checked(Bridge()->write_values(entity, ToStd(field), row, index, words.Get(), (size_t)words.Length()));
 }
 
 int32 TerniWorld::Subscribe(int32 entity, const StringView& field, int32 firstRow, int32 rows)
 {
-    return Checked(_bridge->subscribe(entity, ToStd(field), firstRow, rows));
+    return Checked(Bridge()->subscribe(entity, ToStd(field), firstRow, rows));
 }
 
 Array<int32> TerniWorld::GetSubscribed(int32 id) const
@@ -454,68 +549,68 @@ Array<int32> TerniWorld::GetSubscribed(int32 id) const
 
 void* TerniWorld::GetSubscribedData(int32 id, int32& words) const
 {
-    return (void*)Checked(_bridge->subscribed(id, words));
+    return (void*)Checked(Bridge()->subscribed(id, words));
 }
 
 int32 TerniWorld::CreateEntity(int32 entity)
 {
-    return Checked(_bridge->create_entity(entity));
+    return Checked(Bridge()->create_entity(entity));
 }
 
 bool TerniWorld::DestroyEntity(int32 entity, int32 row)
 {
-    return Checked(_bridge->destroy_entity(entity, row));
+    return Checked(Bridge()->destroy_entity(entity, row));
 }
 
 bool TerniWorld::IsAlive(int32 entity, int32 row) const
 {
-    return Checked(_bridge->alive(entity, row));
+    return Checked(Bridge()->alive(entity, row));
 }
 
 int32 TerniWorld::GetGeneration(int32 entity, int32 row) const
 {
-    return Checked(_bridge->generation(entity, row));
+    return Checked(Bridge()->generation(entity, row));
 }
 
 int32 TerniWorld::GetCount(int32 entity) const
 {
-    return Checked(_bridge->count(entity));
+    return Checked(Bridge()->count(entity));
 }
 
 int32 TerniWorld::GetAliveCount(int32 entity) const
 {
-    return Checked(_bridge->alive_count(entity));
+    return Checked(Bridge()->alive_count(entity));
 }
 
 TerniModifier TerniWorld::AddModifier(int32 bundle, int32 entity, int32 row, int32 scale, int32 duration)
 {
-    return ToFlax(Checked(_bridge->add_modifier(bundle, entity, row, scale, duration)));
+    return ToFlax(Checked(Bridge()->add_modifier(bundle, entity, row, scale, duration)));
 }
 
 bool TerniWorld::SetModifierScale(const TerniModifier& modifier, int32 scale)
 {
-    return Checked(_bridge->set_modifier_scale(ToBridge(modifier), scale));
+    return Checked(Bridge()->set_modifier_scale(ToBridge(modifier), scale));
 }
 
 bool TerniWorld::RemoveModifier(const TerniModifier& modifier)
 {
-    return Checked(_bridge->remove_modifier(ToBridge(modifier)));
+    return Checked(Bridge()->remove_modifier(ToBridge(modifier)));
 }
 
 bool TerniWorld::IsModifierAlive(const TerniModifier& modifier) const
 {
-    return Checked(_bridge->modifier_alive(ToBridge(modifier)));
+    return Checked(Bridge()->modifier_alive(ToBridge(modifier)));
 }
 
 int32 TerniWorld::GetModifierTotal(int32 key, int32 entity, int32 row)
 {
-    return Checked(_bridge->modifier_total(key, entity, row));
+    return Checked(Bridge()->modifier_total(key, entity, row));
 }
 
 Array<TerniContribution> TerniWorld::GetModifierBreakdown(int32 key, int32 entity, int32 row)
 {
     Array<TerniContribution> out;
-    for (const terni_bridge::Contribution& c : _bridge->modifier_breakdown(key, entity, row))
+    for (const terni_bridge::Contribution& c : Bridge()->modifier_breakdown(key, entity, row))
     {
         TerniContribution item;
         item.Slot = c.modifier.slot;
@@ -533,7 +628,7 @@ Array<TerniContribution> TerniWorld::GetModifierBreakdown(int32 key, int32 entit
 Array<byte> TerniWorld::Save()
 {
     std::vector<uint8_t> data;
-    Checked(_bridge->save(data));
+    Checked(Bridge()->save(data));
     Array<byte> out;
     out.Set(data.data(), (int32)data.size());
     return out;
@@ -541,22 +636,22 @@ Array<byte> TerniWorld::Save()
 
 bool TerniWorld::LoadSave(const Span<byte>& data)
 {
-    return Checked(_bridge->load_save(data.Get(), (size_t)data.Length()));
+    return Checked(Bridge()->load_save(data.Get(), (size_t)data.Length()));
 }
 
 uint64 TerniWorld::GetStateHash()
 {
-    return Checked(_bridge->state_hash());
+    return Checked(Bridge()->state_hash());
 }
 
 String TerniWorld::GetDeviceName() const
 {
-    return ToFlax(_bridge->device_name());
+    return ToFlax(Bridge()->device_name());
 }
 
 TerniHealth TerniWorld::GetHealth() const
 {
-    const terni_bridge::Health h = _bridge->health();
+    const terni_bridge::Health h = Bridge()->health();
     TerniHealth out;
     out.UsualMs = h.usual_ms;
     out.RecentMs = h.recent_ms;
@@ -567,7 +662,7 @@ TerniHealth TerniWorld::GetHealth() const
 
 bool TerniWorld::MoveToDevice(int32 device)
 {
-    if (!Checked(_bridge->move_to_device(device)))
+    if (!Checked(Bridge()->move_to_device(device)))
         return false;
     LOG(Info, "[Terni] {0} moved to {1}", _folder, GetDeviceName());
     return true;
@@ -575,5 +670,5 @@ bool TerniWorld::MoveToDevice(int32 device)
 
 String TerniWorld::GetReport() const
 {
-    return ToFlax(_bridge->report());
+    return ToFlax(Bridge()->report());
 }
