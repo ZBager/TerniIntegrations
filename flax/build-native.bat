@@ -1,5 +1,5 @@
 @echo off
-rem SPDX-License-Identifier: LGPL-2.1-only WITH AdditionRef-Terni-linking-exception-1.0
+rem SPDX-License-Identifier: LGPL-2.1-only WITH AdditionRef-Terni-linking-exception
 rem Copyright (C) 2026 Rafal Zajac
 rem
 rem Builds Terni with Visual Studio and puts it into ThirdParty\Terni, where the plugin's

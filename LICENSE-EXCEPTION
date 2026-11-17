@@ -1,5 +1,5 @@
                        TERNI LINKING EXCEPTION
-                             Version 1.0
+                             Version 1.1
 
 Copyright (C) 2026 Rafał Zając
 
@@ -45,11 +45,12 @@ permissions away.
 
 3. What stays under the LGPL
 
-   This exception does not apply to the Library itself. If you distribute
-   the Library, or an Application that contains a modified version of the
-   Library, the modified Library, including any files or modules you added
-   to it, must be made available under the LGPL (sections 1, 2 and 4), in
-   source form, to everyone who receives it from you.
+   Sections 1 and 2 of this exception do not apply to the Library itself.
+   If you distribute the Library, or an Application that contains a
+   modified version of the Library, the modified Library, including any
+   files or modules you added to it, must be made available under the LGPL
+   (sections 1, 2 and 4), in source form, to everyone who receives it from
+   you.
 
 4. Notices
 
@@ -66,3 +67,23 @@ permissions away.
    If you modify the Library, you may extend this exception to your version
    of it, but you are not obliged to. If you do not wish to, delete this
    exception from your version.
+
+6. Libraries under the Apache License
+
+   You may combine the Library, statically or dynamically, with separate
+   libraries that are licensed under the Apache License, Version 2.0 (for
+   example shaderc, glslang and SPIRV-Tools), and distribute the
+   combination in source code, object code or executable form.
+
+   Those libraries remain under their own licence. Nothing in the LGPL or
+   in this exception requires them to be licensed under the LGPL, and the
+   terms of the Apache License, Version 2.0 that apply to them are not
+   "further restrictions" for the purposes of section 10 of the LGPL. You
+   must still meet the terms of their licence, including its requirements
+   for notices.
+
+   This permission covers libraries that stay separate works which the
+   Library uses through their interfaces. It does not cover copying their
+   code into the Library, and it does not change the licence of the
+   Library: the Library and any modification of it stay under the LGPL,
+   as section 3 says.

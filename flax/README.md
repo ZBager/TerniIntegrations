@@ -93,7 +93,8 @@ from the `spirv` folders and runs the compiler only for rules that were changed 
 cooking, so mods can change rules.
 
 shaderc, glslang and SPIRV-Tools have their own licences (Apache 2.0 and BSD-style).
-Include their notices with a game that ships them.
+Terni's licence exception allows shipping them with Terni; include their licence texts
+and notices with a game that does.
 
 ## Example and test
 
