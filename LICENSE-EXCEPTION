@@ -1,0 +1,68 @@
+                       TERNI LINKING EXCEPTION
+                             Version 1.0
+
+Copyright (C) 2026 Rafał Zając
+
+Terni is licensed under the GNU Lesser General Public License, version 2.1
+only (the "LGPL", see the file LICENSE), with the following exception. The
+exception gives you additional permissions; it takes none of the LGPL's
+permissions away.
+
+0. Definitions
+
+   "The Library" means Terni: its C++ sources and headers, its GLSL library
+   (shaders/terni/), its build files, and any modification of them,
+   including files and modules added to them.
+
+   "An Application" means a work that uses the Library without being a
+   modification of it: for example a game, engine, tool or plug-in, linked
+   with the Library statically or dynamically, together with the rules,
+   data and other files it supplies to the Library.
+
+   "Compiled Shaders" means shader binaries (such as SPIR-V), and caches
+   of them, that the Library produces from an Application's rules together
+   with the Library's GLSL library and the GLSL it generates.
+
+1. Linking
+
+   You may combine an Application with the Library, statically or
+   dynamically, and distribute the combination in object code or
+   executable form under terms of your choice. You are not required to:
+
+   a) provide the Application's source code or object code;
+   b) enable recipients to relink the Application with a modified version
+      of the Library, or use a shared-library mechanism;
+   c) permit recipients to modify the Application or to reverse engineer
+      it for debugging such modifications.
+
+   Sections 5 and 6 of the LGPL do not apply to the Application.
+
+2. Compiled shaders
+
+   Compiled Shaders are part of the Application for the purposes of this
+   exception and may be distributed under terms of your choice. The
+   Application's own rules and data remain yours.
+
+3. What stays under the LGPL
+
+   This exception does not apply to the Library itself. If you distribute
+   the Library, or an Application that contains a modified version of the
+   Library, the modified Library, including any files or modules you added
+   to it, must be made available under the LGPL (sections 1, 2 and 4), in
+   source form, to everyone who receives it from you.
+
+4. Notices
+
+   An Application distributed with the Library must, in its documentation,
+   credits or a notices file distributed with it:
+
+   a) state that it uses Terni;
+   b) include the Library's copyright notice;
+   c) say where the Library's source code can be obtained; and
+   d) include, or link to, the LGPL and this exception.
+
+5. Versions of the Library
+
+   If you modify the Library, you may extend this exception to your version
+   of it, but you are not obliged to. If you do not wish to, delete this
+   exception from your version.

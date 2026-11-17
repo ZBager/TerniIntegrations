@@ -1,0 +1,14 @@
+{
+	"Name": "Terni",
+	"Version": "0.1",
+	"Company": "Terni",
+	"Copyright": "Copyright (C) 2026 Rafał Zając",
+	"GameTarget": "TerniTarget",
+	"EditorTarget": "TerniEditorTarget",
+	"References": [
+		{
+			"Name": "$(EnginePath)/Flax.flaxproj"
+		}
+	],
+	"MinEngineVersion": "1.13.0"
+}

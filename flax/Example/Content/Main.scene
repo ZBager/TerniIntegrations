@@ -1,0 +1,38 @@
+{
+	"ID": "7e2a1c0041d05b6f8a3c9d1e2f4b6a80",
+	"TypeName": "FlaxEngine.SceneAsset",
+	"EngineBuild": 7014,
+	"Data": [
+		{
+			"ID": "7e2a1c0041d05b6f8a3c9d1e2f4b6a80",
+			"TypeName": "FlaxEngine.Scene"
+		},
+		{
+			"ID": "7e2a1c0041d15b6f8a3c9d1e2f4b6a81",
+			"TypeName": "FlaxEngine.Camera",
+			"ParentID": "7e2a1c0041d05b6f8a3c9d1e2f4b6a80",
+			"Name": "Camera"
+		},
+		{
+			"ID": "7e2a1c0041d25b6f8a3c9d1e2f4b6a82",
+			"TypeName": "FlaxEngine.EmptyActor",
+			"ParentID": "7e2a1c0041d05b6f8a3c9d1e2f4b6a80",
+			"Name": "Galaxy"
+		},
+		{
+			"ID": "7e2a1c0041d35b6f8a3c9d1e2f4b6a83",
+			"TypeName": "Terni.TerniSimulation",
+			"ParentID": "7e2a1c0041d25b6f8a3c9d1e2f4b6a82",
+			"V": {
+				"GameFolder": "Galaxy",
+				"TicksPerSecond": 10.0
+			}
+		},
+		{
+			"ID": "7e2a1c0041d45b6f8a3c9d1e2f4b6a84",
+			"TypeName": "Game.GalaxyExample",
+			"ParentID": "7e2a1c0041d25b6f8a3c9d1e2f4b6a82",
+			"V": {}
+		}
+	]
+}

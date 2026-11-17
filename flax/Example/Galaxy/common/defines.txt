@@ -1,0 +1,4 @@
+growth_rate   = 0.02     # 2 % per tick at an empty planet
+tax_rate      = 0.1
+unrest_chance = 0.05     # chance per planet per tick
+unrest_loss   = 0.03     # share of pops lost in an unrest event

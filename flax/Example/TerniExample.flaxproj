@@ -1,0 +1,17 @@
+{
+	"Name": "TerniExample",
+	"Version": "1.0",
+	"Company": "Terni",
+	"Copyright": "",
+	"GameTarget": "GameTarget",
+	"EditorTarget": "GameEditorTarget",
+	"References": [
+		{
+			"Name": "$(EnginePath)/Flax.flaxproj"
+		},
+		{
+			"Name": "$(ProjectPath)/../Terni.flaxproj"
+		}
+	],
+	"MinEngineVersion": "1.13.0"
+}

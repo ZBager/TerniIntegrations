@@ -1,0 +1,11 @@
+{
+	"ID": "7e2a1c0041c05b6f8a3c9d1e2f4b6a70",
+	"TypeName": "FlaxEditor.Content.Settings.GameSettings",
+	"EngineBuild": 7014,
+	"Data": {
+	"ProductName": "Terni Example",
+	"CompanyName": "Terni",
+	"FirstScene": "7e2a1c0041d05b6f8a3c9d1e2f4b6a80",
+	"NoSplashScreen": true
+}
+}
