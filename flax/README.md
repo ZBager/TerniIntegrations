@@ -92,9 +92,14 @@ libraries beside it (about 11 MB). Players need nothing installed. A cooked game
 from the `spirv` folders and runs the compiler only for rules that were changed after
 cooking, so mods can change rules.
 
-shaderc, glslang and SPIRV-Tools have their own licences (Apache 2.0 and BSD-style).
-Terni's licence exception allows shipping them with Terni; include their licence texts
-and notices with a game that does.
+### Licence notices
+
+A cooked game gets `Terni-NOTICES.txt` beside its program: the notice that Terni's
+licence asks for (that the game uses Terni, its copyright, where its source is, and
+links to its licence), followed by the licence texts of shaderc, glslang, SPIRV-Tools
+and SPIRV-Headers, which ship with the rule compiler. Keep the file with the game, or
+copy its contents into your own credits or notices. Terni's licence exception allows
+shipping these libraries with Terni.
 
 ## Example and test
 

@@ -87,4 +87,7 @@ else()
           RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 install(TARGETS terni_bridge ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Terni's notice and the licences of shaderc, glslang, SPIRV-Tools and SPIRV-Headers,
+# beside the programs: plugins ship everything in bin/ with the game.
+install(FILES notices/Terni-NOTICES.txt DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES bridge/terni_bridge.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

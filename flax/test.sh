@@ -18,6 +18,7 @@ if [[ "${1:-}" == "--cooked" ]]; then
     COOK=$(timeout -s KILL "${TIMEOUT:-1200}" "$FLAX_EDITOR" -std -headless -mute -null "-project=$PWD" -build Release.Linux 2>&1 || true)
     grep -E "\[Terni\]|Game building done" <<< "$COOK" || true
     grep -q "Game building done" <<< "$COOK" || { echo "cooking failed, see Example/Logs"; exit 1; }
+    [[ -f Output/Linux/Terni-NOTICES.txt ]] || { echo "Terni-NOTICES.txt is not in the cooked game"; exit 1; }
     GAME=$(find Output/Linux -maxdepth 1 -type f -executable ! -name '*.so*' ! -name terni_compile_rules | head -1)
     # A rule changed after cooking, as a mod would: the cooked game must compile it itself.
     echo "// changed after cooking" >> Output/Linux/Galaxy/rules/planet_growth.glsl
