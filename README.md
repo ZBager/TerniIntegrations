@@ -7,18 +7,24 @@ GPU and CPU.
 
 | Folder | Engine | State |
 | --- | --- | --- |
-| `flax/` | Flax Engine 1.13 | Works on Linux and Windows, in the editor and in cooked games; see [flax/README.md](flax/README.md) for what is missing |
+| `flax/` | Flax Engine 1.13 | Works on Linux and Windows: C++, C# and Visual Scripting, the editor, cooked games. See [flax/README.md](flax/README.md) |
 | `godot/` | Godot 4.5+ | Works on Linux and Windows: GDScript and C#, the editor, Vulkan and Direct3D 12, exported games. See [godot/README.md](godot/README.md) |
 | | Unreal Engine | Planned |
 | | Unity | Planned |
 
-`native/` builds what every plugin links: Terni itself (pinned to one commit),
+`native/` builds what every plugin links and ships: Terni itself (pinned to one commit),
 `terni_bridge` (Terni behind a C++14 interface without exceptions, for engines whose
-headers are not C++20) and `terni_compile_rules` (compiles a game's rules without a GPU).
+headers are not C++20 or that build without exceptions, and the lookup of the GPU the
+engine renders with), `terni_compile_rules` (compiles a game's rules without a GPU, and
+ships with games so mods can change rules) and `Terni-NOTICES.txt` (the licence notices
+a game that ships them needs).
 
-Every plugin offers the same things: load a game folder, tick it (blocking or in the
-background), read fields in bulk, write fields, modifiers and entities, save and load,
-choose the device, and report errors through the engine's log.
+Every plugin offers the same things: load a game folder, start and tick it (blocking or
+in the background), read fields in bulk, write fields, modifiers and entities, save and
+load, run on the GPU the engine renders with or a chosen one, report errors through the
+engine's log, show the simulation in the editor, and put game folders and the rule
+compiler into exported games. Still to come in every plugin: shipping a software Vulkan
+driver for machines whose GPUs cannot run the simulation.
 
 Licensed like Terni: LGPL-2.1-only with the Terni linking exception (`LICENSE`,
 `LICENSE-EXCEPTION`).

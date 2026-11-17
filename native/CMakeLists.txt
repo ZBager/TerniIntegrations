@@ -6,7 +6,10 @@
 #
 #   cmake -S native -B build/native -G Ninja
 #   cmake --build build/native
-#   cmake --install build/native --prefix flax/ThirdParty/Terni
+#   cmake --install build/native --prefix <folder>
+#
+# The plugins' build scripts do this: flax/build-native.sh installs into
+# flax/ThirdParty/Terni, godot/build.sh into build/terni.
 #
 # Terni comes from GitHub, pinned to one commit. -DTERNI_DIR=/path/to/Terni builds a
 # local checkout instead.

@@ -19,9 +19,9 @@ godot\build.bat       # Windows: CMake, Git, Python 3, Visual Studio 2022 or new
 On Windows the library uses the shared C++ runtime (as Terni's libraries do), so a
 game needs the Visual C++ runtime, which most Windows machines have.
 
-This puts the addon in `addons/terni` (the library in `bin/`) and copies it into the
-example project. To use it in a project, copy `addons/terni` into the project's
-`addons` folder and enable the **Terni** plugin.
+This puts the addon in `addons/terni` (the library and the rule compiler in `bin/`) and
+copies it into the two example projects. To use it in a project, copy `addons/terni` into
+the project's `addons` folder and enable the **Terni** plugin.
 
 ## Use
 
@@ -60,7 +60,14 @@ return `bool` return true when they worked; after false, `get_last_error()` says
 and the error is also pushed to the debugger. Start options are a dictionary:
 `device`, `ignore_renderer`, `preference`, `cache_folder`, `cache_only`, `validation`.
 
-By default the simulation runs on the GPU the engine renders with, if it can.
+By default the simulation runs on the GPU the engine renders with, if it can: it keeps
+a laptop's second GPU asleep and follows the player's choice of GPU. The node's
+**Device** names one instead; **Preference** decides when the renderer's GPU cannot run
+the simulation.
+
+Rules are compiled by `terni_compile_rules`, which comes with the addon, into the folder
+`spirv` inside the game folder. A world starts from that folder and runs the compiler
+only for rules that are new or have changed.
 
 ## C#
 
@@ -131,8 +138,9 @@ the licences of the libraries that come with the compiler.
 
 ## Test
 
-On Windows: `test.bat`, `test.bat window` and `test.bat csharp`, with `GODOT` and
-`GODOT_MONO` set to the Godot programs.
+On Windows: `test.bat`, `test.bat window` (further arguments go to Godot, e.g.
+`--rendering-driver d3d12`) and `test.bat csharp`, with `GODOT` and `GODOT_MONO` set to
+the Godot programs. Exporting on Windows is done from the editor.
 
 ```sh
 godot/test.sh                          # headless
@@ -148,3 +156,7 @@ crash as it quits, after the import is done; opening the editor is not affected,
 
 `--export` needs Godot's export templates: installed through the editor, or the folder
 holding `linux_release.x86_64` (from the official templates archive) in `GODOT_TEMPLATES`.
+
+## Not done yet
+
+- Shipping a software Vulkan driver, for machines whose GPUs cannot run the simulation.
