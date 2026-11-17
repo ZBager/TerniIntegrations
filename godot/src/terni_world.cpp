@@ -63,8 +63,12 @@ Vector2i to_godot(const terni_bridge::Modifier& m) { return Vector2i(static_cast
 
 int32_t to_int(int64_t v) { return static_cast<int32_t>(std::clamp<int64_t>(v, INT32_MIN, INT32_MAX)); }
 
-// res:// and user:// paths as paths on disk; others unchanged.
+// res:// and user:// paths as paths on disk; others unchanged. In an exported game, res://
+// is the exported package, which does not hold game folders: the export plugin puts them
+// beside the program, at the same relative path.
 String globalize(const String& path) {
+    if (path.begins_with("res://") && OS::get_singleton()->has_feature("template"))
+        return OS::get_singleton()->get_executable_path().get_base_dir().path_join(path.substr(6));
     if (path.begins_with("res://") || path.begins_with("user://"))
         return ProjectSettings::get_singleton()->globalize_path(path);
     return path;

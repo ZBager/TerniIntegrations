@@ -6,8 +6,8 @@ on a Vulkan device of its own, next to the renderer, and gives the same results 
 every machine.
 
 Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). **Work in
-progress**: it runs in the editor and from the command line on Linux; the editor dock,
-exported games, C# and Windows are next.
+progress**: it runs in the editor, from the command line and in exported games on
+Linux; the editor dock, C# and Windows are next.
 
 ## Build
 
@@ -58,9 +58,28 @@ and the error is also pushed to the debugger. Start options are a dictionary:
 
 By default the simulation runs on the GPU the engine renders with, if it can.
 
+## Exported games
+
+Exporting needs no setup beyond the **Terni** plugin being enabled. Godot leaves game
+folders out of the exported package (their `.gdignore` says so), so the plugin's export
+step compiles each game folder's rules and copies the folder, with its `spirv` folder,
+beside the exported program, at the same path relative to it. A `TerniSimulation` with
+`res://Galaxy` finds `Galaxy` beside the program. A game folder is any folder of the
+project with a `schema` and a `rules` folder in it, outside `addons`.
+
+The rule compiler (`terni_compile_rules`, with shaderc where it is not linked in) and
+`Terni-NOTICES.txt` go beside the program too. An exported game starts from the `spirv`
+folders and compiles only rules changed after exporting, so mods can change rules.
+Keep `Terni-NOTICES.txt` with the game: it is the notice Terni's licence asks for, and
+the licences of the libraries that come with the compiler.
+
 ## Test
 
 ```sh
 godot/test.sh                          # headless
 godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
+GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, test there
 ```
+
+`--export` needs Godot's export templates: installed through the editor, or the folder
+holding `linux_release.x86_64` (from the official templates archive) in `GODOT_TEMPLATES`.
