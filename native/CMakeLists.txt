@@ -20,6 +20,32 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(TERNI_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(TERNI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
+# terni_compile_rules ships with games, so that players can change rules, and must not
+# need shaderc on their machines. With a static shaderc that has glslang and SPIRV-Tools
+# inside (shaderc_combined, as in the Vulkan SDK) it is linked in. Some systems have a
+# shaderc_combined without them; then the shared libraries are installed beside the
+# program instead (see the install rules below).
+find_package(Vulkan REQUIRED)
+find_package(Threads REQUIRED)
+get_filename_component(_vulkan_libdir "${Vulkan_LIBRARY}" DIRECTORY)
+find_library(TERNI_SHADERC_COMBINED NAMES shaderc_combined HINTS ${_vulkan_libdir} "$ENV{VULKAN_SDK}/Lib")
+find_path(TERNI_SHADERC_INCLUDE shaderc/shaderc.hpp HINTS ${Vulkan_INCLUDE_DIRS} "$ENV{VULKAN_SDK}/Include")
+set(TERNI_SHADERC_STATIC OFF)
+if(TERNI_SHADERC_COMBINED AND TERNI_SHADERC_INCLUDE)
+  include(CheckCXXSourceCompiles)
+  set(CMAKE_REQUIRED_INCLUDES ${TERNI_SHADERC_INCLUDE})
+  set(CMAKE_REQUIRED_LIBRARIES ${TERNI_SHADERC_COMBINED} Threads::Threads)
+  check_cxx_source_compiles("#include <shaderc/shaderc.hpp>
+int main() { shaderc::Compiler c; return c.IsValid() ? 0 : 1; }" TERNI_SHADERC_COMBINED_LINKS)
+  unset(CMAKE_REQUIRED_INCLUDES)
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  if(TERNI_SHADERC_COMBINED_LINKS)
+    set(TERNI_SHADERC_STATIC ON)
+    set(SHADERC_LIB "${TERNI_SHADERC_COMBINED}" CACHE FILEPATH "" FORCE)  # read by Terni's own CMakeLists
+  endif()
+endif()
+message(STATUS "terni_compile_rules: shaderc ${TERNI_SHADERC_STATIC}" " (ON: linked in, OFF: shared libraries installed beside it)")
+
 set(TERNI_DIR "" CACHE PATH "Local Terni checkout to build instead of the pinned GitHub commit")
 set(TERNI_COMMIT bc1144b16d6aa3a1dd179ddf1d6a3d43dd10fa84)
 set(FETCHCONTENT_SOURCE_DIR_TERNI "${TERNI_DIR}")  # empty: fetch the pinned commit
@@ -37,8 +63,27 @@ target_compile_features(terni_bridge PRIVATE cxx_std_20)
 # an engine's own shader compiler can clash with the one Terni uses.
 add_executable(terni_compile_rules compile_rules.cpp)
 target_link_libraries(terni_compile_rules PRIVATE Terni::core)
+if(NOT MSVC)
+  # Fewer things to find on a player's machine. An old-style RPATH, because unlike
+  # RUNPATH it also serves the libraries that shaderc itself loads.
+  target_link_options(terni_compile_rules PRIVATE -static-libstdc++ -static-libgcc)
+  if(NOT WIN32)
+    target_link_options(terni_compile_rules PRIVATE -Wl,--disable-new-dtags)
+    set_target_properties(terni_compile_rules PROPERTIES INSTALL_RPATH "$ORIGIN")
+  endif()
+endif()
 
 include(GNUInstallDirs)
-install(TARGETS terni_compile_rules RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(TERNI_SHADERC_STATIC)
+  install(TARGETS terni_compile_rules RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+else()
+  # shaderc and what it loads, beside the program.
+  install(TARGETS terni_compile_rules RUNTIME_DEPENDENCY_SET terni_compiler_libraries
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(RUNTIME_DEPENDENCY_SET terni_compiler_libraries
+          PRE_INCLUDE_REGEXES "shaderc" "glslang" "SPIRV" PRE_EXCLUDE_REGEXES ".*"
+          DIRECTORIES ${_vulkan_libdir} "$ENV{VULKAN_SDK}/Bin"
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 install(TARGETS terni_bridge ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES bridge/terni_bridge.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

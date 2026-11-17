@@ -86,8 +86,14 @@ compiled and is copied to the same place in the cooked game, with its `spirv` fo
 The path a `TerniSimulation` script has works there unchanged. The cook log names each
 folder, and reports an error for one whose rules do not compile.
 
-The rule compiler is left out of the cooked game: players need neither it nor shaderc.
-A cooked game therefore cannot run rules that were changed after cooking.
+The rule compiler ships with the cooked game, with shaderc: linked into it where the
+system has a complete static shaderc (the Vulkan SDK does), otherwise as shared
+libraries beside it (about 11 MB). Players need nothing installed. A cooked game starts
+from the `spirv` folders and runs the compiler only for rules that were changed after
+cooking, so mods can change rules.
+
+shaderc, glslang and SPIRV-Tools have their own licences (Apache 2.0 and BSD-style).
+Include their notices with a game that ships them.
 
 ## Example and test
 
@@ -100,13 +106,12 @@ FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
 
 It runs the galaxy for 200 ticks on every Vulkan device of the machine, with blocking
 and background ticks and through a save, and compares the state hash with the one
-Terni's own tools give. `./test.sh --cooked` cooks the example for Linux first and runs
-the same test in the cooked game.
+Terni's own tools give. `./test.sh --cooked` cooks the example for Linux first, changes
+a rule in the cooked game as a mod would, and runs the same test there.
 
 ## Not done yet
 
 - Windows: the build scripts are written and have never been run.
-- Rules changed by players (mods) in a cooked game: the compiler is not shipped.
 - Stopping worlds when scripts reload in the editor is in place and has not been tested.
 - Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.

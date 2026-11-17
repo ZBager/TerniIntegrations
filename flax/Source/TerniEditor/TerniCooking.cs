@@ -78,14 +78,11 @@ namespace TerniEditor
 
         internal static void OnPostProcessFiles()
         {
-            // The cooked game starts from the spirv folders and has no use for the rule
-            // compiler, which needs shaderc on the machine it runs on.
-            foreach (var name in new[] { "terni_compile_rules", "terni_compile_rules.exe" })
-            {
-                var path = Path.Combine(GameCooker.CurrentData.NativeCodeOutputPath, name);
-                if (File.Exists(path))
-                    File.Delete(path);
-            }
+            // The rule compiler ships with the game, for rules that players change. Copying
+            // can drop its permission to run.
+            var path = Path.Combine(GameCooker.CurrentData.NativeCodeOutputPath, "terni_compile_rules");
+            if (File.Exists(path) && !OperatingSystem.IsWindows())
+                File.SetUnixFileMode(path, File.GetUnixFileMode(path) | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
         }
 
         private static void Copy(string from, string to)

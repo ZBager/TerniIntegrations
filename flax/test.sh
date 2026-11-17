@@ -18,9 +18,12 @@ if [[ "${1:-}" == "--cooked" ]]; then
     COOK=$(timeout -s KILL "${TIMEOUT:-1200}" "$FLAX_EDITOR" -std -headless -mute -null "-project=$PWD" -build Release.Linux 2>&1 || true)
     grep -E "\[Terni\]|Game building done" <<< "$COOK" || true
     grep -q "Game building done" <<< "$COOK" || { echo "cooking failed, see Example/Logs"; exit 1; }
-    [[ ! -e Output/Linux/terni_compile_rules ]] || { echo "the rule compiler is in the cooked game"; exit 1; }
-    GAME=$(find Output/Linux -maxdepth 1 -type f -executable ! -name '*.so' | head -1)
+    GAME=$(find Output/Linux -maxdepth 1 -type f -executable ! -name '*.so*' ! -name terni_compile_rules | head -1)
+    # A rule changed after cooking, as a mod would: the cooked game must compile it itself.
+    echo "// changed after cooking" >> Output/Linux/Galaxy/rules/planet_growth.glsl
+    BEFORE=$(ls Output/Linux/Galaxy/spirv | wc -l)
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$GAME" -headless -mute > /dev/null 2>&1 || true
+    [[ $(ls Output/Linux/Galaxy/spirv | wc -l) -gt $BEFORE ]] || { echo "the cooked game did not compile the changed rule"; exit 1; }
 else
     SCENE=$(grep -m1 '"ID"' Content/Main.scene | sed -E 's/.*"([0-9a-f]{32})".*/\1/')
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" -play "$SCENE" > /dev/null 2>&1 || true
