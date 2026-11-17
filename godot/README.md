@@ -7,7 +7,7 @@ every machine.
 
 Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). **Work in
 progress**: it runs in the editor, from the command line and in exported games on
-Linux; the editor dock, C# and Windows are next.
+Linux, with a Terni tab in the debugger; C# and Windows are next.
 
 ## Build
 
@@ -58,6 +58,15 @@ and the error is also pushed to the debugger. Start options are a dictionary:
 
 By default the simulation runs on the GPU the engine renders with, if it can.
 
+## The Terni tab
+
+While the game runs from the editor, the **Debugger** panel has a **Terni** tab: the
+devices of the machine (the one the editor renders with marked), each `TerniSimulation`
+of the running game with its device, tick, time per tick and entity counts, and the
+values of any field you pick, refreshed twice a second. The game runs in its own
+process, so the simulations send this over the debugger connection; an exported game
+sends nothing.
+
 ## Exported games
 
 Exporting needs no setup beyond the **Terni** plugin being enabled. Godot leaves game
@@ -80,6 +89,10 @@ godot/test.sh                          # headless
 godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
 GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, test there
 ```
+
+The first command-line import of a fresh project with the extension makes Godot 4.7
+crash as it quits, after the import is done; opening the editor is not affected, and
+`test.sh` imports twice.
 
 `--export` needs Godot's export templates: installed through the editor, or the folder
 holding `linux_release.x86_64` (from the official templates archive) in `GODOT_TEMPLATES`.

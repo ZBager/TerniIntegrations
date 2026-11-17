@@ -3,11 +3,100 @@
 #include "terni_simulation.h"
 
 #include <algorithm>
+#include <string>
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/engine_debugger.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
 namespace godot {
+
+namespace {
+// What the editor's Terni tab watches: a simulation node, an entity type and a field.
+// Plain C++ strings: Godot types may not be globals (they would be made before godot-cpp
+// is ready, and destroyed after it is gone).
+std::string watch_node, watch_entity, watch_field;
+
+std::string to_std(const String& s) {
+    const CharString utf8 = s.utf8();
+    return std::string(utf8.get_data(), static_cast<size_t>(utf8.length()));
+}
+constexpr double REPORT_SECONDS = 0.5;
+constexpr int64_t MAX_ROWS = 64;
+}  // namespace
+
+bool TerniSimulation::on_debugger_message(const String& message, const Array& data) {
+    if (message.trim_prefix("terni:") != "watch" || data.size() < 3) return false;
+    watch_node = to_std(data[0]);
+    watch_entity = to_std(data[1]);
+    watch_field = to_std(data[2]);
+    return true;
+}
+
+void TerniSimulation::register_debugger_capture() {
+    EngineDebugger* debugger = EngineDebugger::get_singleton();
+    if (debugger && debugger->is_active() && !debugger->has_capture("terni"))
+        debugger->register_message_capture("terni", callable_mp_static(&TerniSimulation::on_debugger_message));
+}
+
+// Twice a second, when the game runs from the editor: this simulation's state for the
+// editor's Terni tab, and the values of the watched field if it is one of ours. Never
+// while a tick is in flight (reading would wait for it).
+void TerniSimulation::report_to_debugger(double delta) {
+    EngineDebugger* debugger = EngineDebugger::get_singleton();
+    if (!debugger || !debugger->is_active()) return;
+    report_due_ -= delta;
+    if (report_due_ > 0) return;
+    report_due_ = REPORT_SECONDS;
+    register_debugger_capture();
+
+    Dictionary state;
+    state["node"] = String(get_path());
+    state["folder"] = world_.is_valid() ? world_->get_game_folder() : game_folder_;
+    state["running"] = is_running();
+    state["starting"] = is_starting();
+    state["error"] = last_error_;
+    if (is_running()) {
+        state["device"] = world_->get_device_name();
+        state["ticks"] = world_->get_ticks();
+        state["gpu_ms"] = world_->get_last_tick_gpu_ms();
+        state["slow"] = bool(world_->get_health()["slow"]);
+        Array entities;
+        const PackedStringArray names = world_->get_entities();
+        for (int64_t i = 0; i < names.size(); ++i) {
+            Dictionary e;
+            e["name"] = names[i];
+            e["count"] = world_->get_count(i);
+            e["capacity"] = world_->get_capacity(i);
+            e["dynamic"] = world_->is_dynamic(i);
+            e["alive"] = world_->get_alive_count(i);
+            e["fields"] = world_->get_fields(i);
+            entities.push_back(e);
+        }
+        state["entities"] = entities;
+        const String entity_name = String::utf8(watch_entity.c_str()), field = String::utf8(watch_field.c_str());
+        if (watch_node == to_std(String(get_path())) && !world_->is_tick_in_flight()) {
+            const int64_t entity = world_->find_entity(entity_name);
+            if (entity >= 0 && world_->has_field(entity, field)) {
+                const int64_t rows = std::min(world_->get_count(entity), MAX_ROWS);
+                Dictionary watched;
+                watched["entity"] = entity_name;
+                watched["field"] = field;
+                watched["type"] = world_->get_field_type(entity, field);
+                watched["size"] = world_->get_field_size(entity, field);
+                watched["rows"] = world_->get_count(entity);
+                watched["words"] = world_->read_field(entity, field, 0, rows);
+                PackedStringArray ids;
+                for (int64_t r = 0; r < rows; ++r) ids.push_back(world_->get_row_id(entity, r));
+                watched["ids"] = ids;
+                state["watched"] = watched;
+            }
+        }
+    }
+    Array message;
+    message.push_back(state);
+    debugger->send_message("terni:state", message);
+}
 
 bool TerniSimulation::start_world() {
     stop_world();
@@ -74,6 +163,7 @@ void TerniSimulation::_ready() {
 void TerniSimulation::_exit_tree() { stop_world(); }
 
 void TerniSimulation::_process(double delta) {
+    report_to_debugger(delta);
     if (is_starting()) {
         if (!world_->start_ready()) return;
         if (!world_->is_running()) {

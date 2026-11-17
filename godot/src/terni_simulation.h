@@ -73,9 +73,17 @@ private:
     int64_t preference_ = TerniWorld::PREFER_DISCRETE;
     bool compile_rules_ = true;
 
+    double report_due_ = 0;
+
     void on_started();
     void fail_start();
     bool fail();
+    void report_to_debugger(double delta);
+
+public:
+    // The editor's Terni debugger tab asks for one field to watch (see report_to_debugger).
+    static bool on_debugger_message(const String& message, const Array& data);
+    static void register_debugger_capture();
 };
 
 }  // namespace godot
