@@ -1,0 +1,6 @@
+planet = { id = latium     owner = ROM  housing = 12000  pop = 8200
+           add_modifier = { name = good_harvest duration = 24 } }
+planet = { id = sicilia    owner = ROM  housing = 6000   pop = 2500.5 }
+planet = { id = carthago   owner = CAR  housing = 15000  pop = 9100  stability = 60 }
+planet = { id = numidia    owner = CAR  housing = 4000   pop = 1200 }
+planet = { id = alexandria owner = EGY  housing = 20000  pop = 15000 stability = 45.5 }

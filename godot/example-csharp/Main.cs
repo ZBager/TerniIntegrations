@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: LGPL-2.1-only WITH AdditionRef-Terni-linking-exception
+// Copyright (C) 2026 Rafał Zając
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using Godot;
+using Terni;
+
+namespace TerniExample;
+
+/// <summary>
+/// The galaxy from C#: shows the planets' population as the Simulation node runs it. With
+/// the environment variable TERNI_EXAMPLE_TEST set to a result file, runs a self-test of
+/// the C# wrapper instead and quits.
+/// </summary>
+public partial class Main : Control
+{
+    /// <summary>State hash of the galaxy example after 200 ticks, as terni_run prints it.</summary>
+    private const ulong Expected = 0xad93f051a2965dfb;
+
+    private TerniSimulation _simulation;
+    private TerniWorld _subscribed;
+    private int _planet, _pop;
+    private Label _label;
+
+    public override void _Ready()
+    {
+        _simulation = new TerniSimulation(GetNode("Simulation"));
+        _label = GetNode<Label>("Galaxy");
+        var test = System.Environment.GetEnvironmentVariable("TERNI_EXAMPLE_TEST");
+        if (!string.IsNullOrEmpty(test))
+        {
+            _simulation.Paused = true;
+            var passed = SelfTest(test);
+            GetTree().CreateTimer(0.5).Timeout += () => GetTree().Quit(passed ? 0 : 1);
+            return;
+        }
+        // Every time a world starts: subscriptions belong to one world.
+        _simulation.Started += Setup;
+        _simulation.TickCompleted += OnTick;
+        _simulation.Failed += error => _label.Text = "The simulation stopped:\n" + error;
+        if (_simulation.IsRunning)
+            Setup();
+    }
+
+    private void Setup()
+    {
+        var world = _simulation.World;
+        _subscribed = world;
+        _planet = world.Entity("planet");
+        _pop = world.Subscribe(_planet, "pop");
+        GD.Print($"Galaxy runs on {world.DeviceName}: {world.GetCount(_planet)} planets.");
+    }
+
+    private void OnTick()
+    {
+        var world = _simulation.World;
+        if (world != _subscribed)
+            Setup();
+        var pop = world.GetSubscribed(_pop);
+        var text = new StringBuilder();
+        text.AppendLine($"Terni galaxy on {world.DeviceName} (C#)");
+        text.AppendLine($"Tick {world.Ticks}, {world.LastTickGpuMs:0.000} ms on the device per tick");
+        text.AppendLine();
+        for (var row = 0; row < pop.Length; row++)
+            text.AppendLine($"{world.GetRowId(_planet, row)}: {TerniValue.ToDouble(pop[row], TerniFieldType.Quantity):0.0}");
+        _label.Text = text.ToString();
+    }
+
+    private static bool SelfTest(string resultFile)
+    {
+        var log = new StringBuilder();
+        var ok = true;
+        void Check(bool condition, string what)
+        {
+            log.AppendLine((condition ? "ok    " : "FAIL  ") + what);
+            ok &= condition;
+        }
+        try
+        {
+            var devices = TerniWorld.GetDevices();
+            Check(devices.Any(d => d.Usable), $"{devices.Length} devices, at least one usable");
+            foreach (var device in devices.Where(d => d.Usable))
+            {
+                var world = new TerniWorld();
+                Check(world.Load("res://Galaxy"), $"[{device.Name}] load");
+                Check(world.BeginStart(new TerniStartOptions { Device = device.Index }), $"[{device.Name}] begin start");
+                while (!world.StartReady())
+                {
+                }
+                Check(world.IsRunning, $"[{device.Name}] started: {world.LastError}");
+                var planet = world.Entity("planet");
+                var pop = world.Subscribe(planet, "pop");
+                for (var i = 0; i < 100; i++)
+                    world.Tick();
+                var save = world.Save();
+                for (var i = 0; i < 100; i++)
+                {
+                    world.BeginTick();
+                    while (!world.TickReady())
+                    {
+                    }
+                    world.EndTick();
+                }
+                Check(world.GetStateHash() == Expected, $"[{device.Name}] state hash {world.GetStateHash():x16}, expected {Expected:x16}");
+                Check(world.GetSubscribed(pop).SequenceEqual(world.ReadField(planet, "pop").Take(world.GetCount(planet))),
+                      $"[{device.Name}] subscribed pop equals read pop");
+                Check(world.LoadSave(save) && world.Ticks == 100, $"[{device.Name}] save restores tick 100");
+                var sicilia = world.FindRow(planet, "sicilia");
+                var key = world.FindModifierKey("pop_growth");
+                var before = world.GetModifierTotal(key, planet, sicilia);
+                var modifier = world.AddModifier(world.FindBundle("good_harvest"), planet, sicilia);
+                world.Tick();
+                Check(world.IsModifierAlive(modifier) && world.GetModifierTotal(key, planet, sicilia) != before &&
+                      world.GetModifierBreakdown(key, planet, sicilia).Length > 0, $"[{device.Name}] modifier added and counted");
+                Check(!world.WriteValue(planet, "no_such_field", 0, 1) && world.LastError.Length > 0, $"[{device.Name}] a bad field is an error");
+                world.Stop();
+            }
+            Check(TerniWorld.FindRendererDevice() >= -1, "find the renderer's device");
+
+            // Events: a handler added and removed again is not called.
+            var simulationNode = (Node)ClassDB.Instantiate("TerniSimulation");
+            var simulation = new TerniSimulation(simulationNode);
+            var calls = 0;
+            Action counter = () => calls++;
+            simulation.TickCompleted += counter;
+            simulationNode.EmitSignal("tick_completed");
+            simulation.TickCompleted -= counter;
+            simulationNode.EmitSignal("tick_completed");
+            Check(calls == 1, $"events can be removed ({calls} call)");
+            simulationNode.Free();
+        }
+        catch (Exception e)
+        {
+            Check(false, "exception: " + e);
+        }
+        log.AppendLine(ok ? "PASSED" : "FAILED");
+        File.WriteAllText(resultFile, log.ToString());
+        GD.Print("Terni C# self-test:\n" + log);
+        return ok;
+    }
+}

@@ -8,7 +8,7 @@ GPU and CPU.
 | Folder | Engine | State |
 | --- | --- | --- |
 | `flax/` | Flax Engine 1.13 | Works on Linux and Windows, in the editor and in cooked games; see [flax/README.md](flax/README.md) for what is missing |
-| `godot/` | Godot 4.5+ | In progress: runs in the editor and headless on Linux; see [godot/README.md](godot/README.md) |
+| `godot/` | Godot 4.5+ | Works on Linux: GDScript and C#, the editor, exported games; Windows is next. See [godot/README.md](godot/README.md) |
 | | Unreal Engine | Planned |
 | | Unity | Planned |
 

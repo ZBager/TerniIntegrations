@@ -16,5 +16,7 @@ cmake -S . -B "$BUILD/godot" -G Ninja -DCMAKE_BUILD_TYPE=Release -DTERNI_PREFIX=
 cmake --build "$BUILD/godot"
 
 # The example project gets a copy of the addon (Godot needs it inside the project).
-rm -rf example/addons/terni && mkdir -p example/addons && cp -r addons/terni example/addons/
-echo "built $(pwd)/addons/terni, copied into example/addons"
+for project in example example-csharp; do
+    rm -rf "$project/addons/terni" && mkdir -p "$project/addons" && cp -r addons/terni "$project/addons/"
+done
+echo "built $(pwd)/addons/terni, copied into the example projects"

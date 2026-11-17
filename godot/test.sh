@@ -7,6 +7,7 @@
 #   ./test.sh              headless (the renderer's GPU is not checked: there is none)
 #   ./test.sh --window     in a window, so the renderer's GPU is checked too; extra
 #                          arguments go to Godot, e.g. ./test.sh --window --gpu-index 0
+#   ./test.sh --csharp     the C# example, headless, with godot-mono (GODOT_MONO)
 #   ./test.sh --export     exports the example for Linux, changes a rule in the exported
 #                          game as a mod would, and runs the test there. Needs Godot's
 #                          export templates: installed, or the folder holding
@@ -21,7 +22,16 @@ if [[ ! -d .godot ]]; then
     "$GODOT" --headless --path . --import > /dev/null 2>&1 || true
     "$GODOT" --headless --path . --import > /dev/null 2>&1
 fi
-if [[ "${1:-}" == "--export" ]]; then
+if [[ "${1:-}" == "--csharp" ]]; then
+    cd ../example-csharp
+    MONO="${GODOT_MONO:-godot-mono}"
+    if [[ ! -d .godot ]]; then
+        "$MONO" --headless --path . --import > /dev/null 2>&1 || true
+    fi
+    "$MONO" --headless --path . --build-solutions --quit > /dev/null 2>&1
+    "$MONO" --headless --path . --import > /dev/null 2>&1
+    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$MONO" --headless --path . > /dev/null 2>&1 || true
+elif [[ "${1:-}" == "--export" ]]; then
     OUT="$(realpath -m ../../build/godot-export)"
     rm -rf "$OUT" Galaxy/spirv && mkdir -p "$OUT"   # the export must compile the rules itself
     TEMPLATE=""

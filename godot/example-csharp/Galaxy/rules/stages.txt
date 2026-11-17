@@ -1,0 +1,4 @@
+# Tick order. Each stage runs rules/<name>.glsl once per entity of `for_each`.
+planet_growth   = { for_each = planet }
+empire_income   = { for_each = planet  clear = { empire.income } }
+empire_treasury = { for_each = empire }

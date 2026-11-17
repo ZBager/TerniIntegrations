@@ -1,0 +1,372 @@
+// SPDX-License-Identifier: LGPL-2.1-only WITH AdditionRef-Terni-linking-exception
+// Copyright (C) 2026 Rafał Zając
+//
+// Typed C# access to the Terni GDExtension. Godot makes no C# classes for extension
+// classes, so these wrap them: TerniWorld wraps a TerniWorld object, TerniSimulation a
+// TerniSimulation node. Godot compiles this file into any C# project that has the addon.
+using System;
+using System.Collections.Generic;
+using Godot;
+using GDArray = Godot.Collections.Array;
+using GDDictionary = Godot.Collections.Dictionary;
+
+namespace Terni
+{
+    /// <summary>The type of a field, a define or a modifier key.</summary>
+    public enum TerniFieldType
+    {
+        /// <summary>Fixed point with 8 fraction bits (people, goods, money): raw 256 is 1.</summary>
+        Quantity,
+        /// <summary>Fixed point with 16 fraction bits (ratios, prices): raw 65536 is 1.</summary>
+        Rate,
+        Agg,
+        Int,
+        Count,
+        Ref,
+        /// <summary>A 64-bit whole number in two words: low, then high.</summary>
+        Money64,
+    }
+
+    /// <summary>Which device to choose when none is named.</summary>
+    public enum TerniDevicePreference { Discrete, Integrated, Cpu }
+
+    /// <summary>A Vulkan device the simulation can run on.</summary>
+    public readonly record struct TerniDevice(int Index, string Name, string Type, bool IsCpu, bool Usable, string WhyNot);
+
+    /// <summary>A modifier instance. Old handles are harmless once it is gone.</summary>
+    public readonly record struct TerniModifier(int Slot, int Version)
+    {
+        internal Vector2I ToGodot() => new(Slot, Version);
+        internal static TerniModifier From(Vector2I v) => new(v.X, v.Y);
+    }
+
+    /// <summary>The share of one modifier instance in a key's total.</summary>
+    public readonly record struct TerniContribution(TerniModifier Modifier, int Bundle, int Entity, int Row, int Value);
+
+    /// <summary>How the simulation's device is doing.</summary>
+    public readonly record struct TerniHealth(double UsualMs, double RecentMs, long Ticks, bool Slow);
+
+    /// <summary>How TerniWorld.Start runs a loaded game. The defaults choose the device
+    /// (the renderer's GPU, else by Preference) and compile rules missing from the cache.</summary>
+    public sealed class TerniStartOptions
+    {
+        /// <summary>A device index from TerniWorld.GetDevices(), or -1 to choose.</summary>
+        public int Device = -1;
+        /// <summary>When choosing: do not prefer the GPU the engine renders with.</summary>
+        public bool IgnoreRenderer;
+        public TerniDevicePreference Preference = TerniDevicePreference.Discrete;
+        /// <summary>Folder of the compiled rules. Empty: "spirv" in the game folder.</summary>
+        public string CacheFolder = "";
+        /// <summary>Never compile rules: every rule must be in the cache.</summary>
+        public bool CacheOnly;
+        public bool Validation;
+
+        internal GDDictionary ToGodot()
+        {
+            var d = new GDDictionary
+            {
+                ["ignore_renderer"] = IgnoreRenderer, ["preference"] = (int)Preference,
+                ["cache_folder"] = CacheFolder, ["cache_only"] = CacheOnly, ["validation"] = Validation,
+            };
+            if (Device >= 0)
+                d["device"] = Device;
+            return d;
+        }
+    }
+
+    /// <summary>Raw simulation values as numbers to show, and back.</summary>
+    public static class TerniValue
+    {
+        public const int QuantityOne = 1 << 8;
+        public const int RateOne = 1 << 16;
+
+        public static double ToDouble(int raw, TerniFieldType type) => type switch
+        {
+            TerniFieldType.Quantity => raw / (double)QuantityOne,
+            TerniFieldType.Rate => raw / (double)RateOne,
+            TerniFieldType.Count or TerniFieldType.Ref => (uint)raw,
+            _ => raw,
+        };
+
+        /// <summary>Rounded to the nearest step. Send raw values to other players, not doubles.</summary>
+        public static int FromDouble(double value, TerniFieldType type) => type switch
+        {
+            TerniFieldType.Quantity => (int)Math.Round(value * QuantityOne),
+            TerniFieldType.Rate => (int)Math.Round(value * RateOne),
+            _ => (int)Math.Round(value),
+        };
+
+        public static long ToInt64(int low, int high) => ((long)high << 32) | (uint)low;
+    }
+
+    /// <summary>
+    /// A Terni simulation: a game folder run as compute shaders on a Vulkan device of its
+    /// own, with the same results on every device. Calls that return bool return true when
+    /// they worked; after false, LastError says why. Call everything from one thread.
+    /// </summary>
+    public sealed class TerniWorld
+    {
+        private static readonly StringName ClassName = "TerniWorld";
+
+        /// <summary>The TerniWorld object this wraps (for GDScript or Godot calls).</summary>
+        public GodotObject Object { get; }
+
+        /// <summary>A new world, not loaded yet.</summary>
+        public TerniWorld() : this(ClassDB.Instantiate(ClassName).AsGodotObject()) { }
+
+        /// <summary>Wraps an existing TerniWorld object, e.g. from TerniSimulation.</summary>
+        public TerniWorld(GodotObject world)
+        {
+            Object = world ?? throw new ArgumentNullException(nameof(world));
+        }
+
+        private Variant C(string method, params Variant[] args) => Object.Call(method, args);
+        private static Variant S(string method, params Variant[] args) => ClassDB.ClassCallStatic(ClassName, method, args);
+
+        // ---- devices and tools ----
+
+        public static TerniDevice[] GetDevices()
+        {
+            var list = S("get_devices").AsGodotArray();
+            var result = new TerniDevice[list.Count];
+            for (var i = 0; i < list.Count; i++)
+            {
+                var d = list[i].AsGodotDictionary();
+                result[i] = new TerniDevice(d["index"].AsInt32(), d["name"].AsString(), d["type"].AsString(),
+                                            d["is_cpu"].AsBool(), d["usable"].AsBool(), d["why_not"].AsString());
+            }
+            return result;
+        }
+
+        /// <summary>The device the engine renders with, or -1.</summary>
+        public static int FindRendererDevice() => S("find_renderer_device").AsInt32();
+        public static void StopAll() => S("stop_all");
+
+        /// <summary>Compiles a game folder's rules into the cache folder. Output: errors as file:line: message.</summary>
+        public static bool CompileRules(string gameFolder, string cacheFolder, out string output)
+        {
+            var r = S("compile_rules", gameFolder, cacheFolder).AsGodotDictionary();
+            output = r["output"].AsString();
+            return r["ok"].AsBool();
+        }
+
+        // ---- loading and running ----
+
+        /// <summary>Reads a game folder (res://, user:// or a path on disk).</summary>
+        public bool Load(string gameFolder) => C("load", gameFolder).AsBool();
+        public bool SetCapacity(int entity, int rows) => C("set_capacity", entity, rows).AsBool();
+        public bool Start(TerniStartOptions options = null) => C("start", (options ?? new TerniStartOptions()).ToGodot()).AsBool();
+        /// <summary>Starts on a worker thread; poll StartReady(). Other calls meanwhile wait for the start.</summary>
+        public bool BeginStart(TerniStartOptions options = null) => C("begin_start", (options ?? new TerniStartOptions()).ToGodot()).AsBool();
+        public bool StartReady() => C("start_ready").AsBool();
+        public bool EndStart() => C("end_start").AsBool();
+        public bool IsStarting => C("is_starting").AsBool();
+        public void Stop() => C("stop");
+        public bool IsLoaded => C("is_loaded").AsBool();
+        public bool IsRunning => C("is_running").AsBool();
+        public string GameFolder => C("get_game_folder").AsString();
+        public string LastError => C("get_last_error").AsString();
+        public string[] Errors => C("get_errors").AsStringArray();
+        public string[] Warnings => C("get_warnings").AsStringArray();
+
+        // ---- ticks ----
+
+        public bool Tick() => C("tick").AsBool();
+        public bool BeginTick() => C("begin_tick").AsBool();
+        public bool TickReady() => C("tick_ready").AsBool();
+        public bool EndTick() => C("end_tick").AsBool();
+        public bool TickInFlight => C("is_tick_in_flight").AsBool();
+        public long Ticks => C("get_ticks").AsInt64();
+        public double LastTickMs => C("get_last_tick_ms").AsDouble();
+        public double LastTickGpuMs => C("get_last_tick_gpu_ms").AsDouble();
+
+        // ---- what the game is made of ----
+
+        public string[] GetEntities() => C("get_entities").AsStringArray();
+        public int FindEntity(string name) => C("find_entity", name).AsInt32();
+        /// <summary>The index of an entity type; throws if there is none of that name.</summary>
+        public int Entity(string name)
+        {
+            var index = FindEntity(name);
+            return index >= 0 ? index : throw new ArgumentException($"The game has no entity type '{name}'.");
+        }
+        public int GetCapacity(int entity) => C("get_capacity", entity).AsInt32();
+        public bool IsDynamic(int entity) => C("is_dynamic", entity).AsBool();
+        public string[] GetFields(int entity) => C("get_fields", entity).AsStringArray();
+        public bool HasField(int entity, string field) => C("has_field", entity, field).AsBool();
+        public TerniFieldType GetFieldType(int entity, string field) => (TerniFieldType)C("get_field_type", entity, field).AsInt32();
+        public int GetFieldSize(int entity, string field) => C("get_field_size", entity, field).AsInt32();
+        public int FindRow(int entity, string id) => C("find_row", entity, id).AsInt32();
+        public string GetRowId(int entity, int row) => C("get_row_id", entity, row).AsString();
+        public bool GetDefine(string name, out int raw)
+        {
+            var v = C("get_define", name);
+            raw = v.VariantType == Variant.Type.Nil ? 0 : v.AsInt32();
+            return v.VariantType != Variant.Type.Nil;
+        }
+        public string[] GetBundles() => C("get_bundles").AsStringArray();
+        public int FindBundle(string name) => C("find_bundle", name).AsInt32();
+        public string[] GetModifierKeys() => C("get_modifier_keys").AsStringArray();
+        public int FindModifierKey(string name) => C("find_modifier_key", name).AsInt32();
+        public ulong Checksum => unchecked((ulong)C("get_checksum").AsInt64());
+
+        // ---- fields ----
+
+        /// <summary>Reads rows of a field from the device (waits for it: use Subscribe for every tick).</summary>
+        public int[] ReadField(int entity, string field, int firstRow = 0, int rows = -1) =>
+            C("read_field", entity, field, firstRow, rows).AsInt32Array();
+        public bool WriteField(int entity, string field, int row, int[] words) => C("write_field", entity, field, row, words).AsBool();
+        /// <summary>One value; for money64 the whole 64-bit value.</summary>
+        public bool WriteValue(int entity, string field, int row, long raw, int index = 0) =>
+            C("write_value", entity, field, row, raw, index).AsBool();
+        public bool WriteValues(int entity, string field, int row, int index, int[] words) =>
+            C("write_values", entity, field, row, index, words).AsBool();
+        /// <summary>A field copied back with every tick; returns the id for GetSubscribed, or -1.</summary>
+        public int Subscribe(int entity, string field, int firstRow = 0, int rows = -1) =>
+            C("subscribe", entity, field, firstRow, rows).AsInt32();
+        public int[] GetSubscribed(int id) => C("get_subscribed", id).AsInt32Array();
+
+        // ---- entities that come and go ----
+
+        public int CreateEntity(int entity) => C("create_entity", entity).AsInt32();
+        public bool DestroyEntity(int entity, int row) => C("destroy_entity", entity, row).AsBool();
+        public bool IsAlive(int entity, int row) => C("is_alive", entity, row).AsBool();
+        public int GetGeneration(int entity, int row) => C("get_generation", entity, row).AsInt32();
+        public int GetCount(int entity) => C("get_count", entity).AsInt32();
+        public int GetAliveCount(int entity) => C("get_alive_count", entity).AsInt32();
+
+        // ---- modifiers ----
+
+        public TerniModifier AddModifier(int bundle, int entity, int row, int scale = TerniValue.RateOne, int duration = 0) =>
+            TerniModifier.From(C("add_modifier", bundle, entity, row, scale, duration).AsVector2I());
+        public bool SetModifierScale(TerniModifier modifier, int scale) => C("set_modifier_scale", modifier.ToGodot(), scale).AsBool();
+        public bool RemoveModifier(TerniModifier modifier) => C("remove_modifier", modifier.ToGodot()).AsBool();
+        public bool IsModifierAlive(TerniModifier modifier) => C("is_modifier_alive", modifier.ToGodot()).AsBool();
+        public int GetModifierTotal(int key, int entity, int row) => C("get_modifier_total", key, entity, row).AsInt32();
+        public TerniContribution[] GetModifierBreakdown(int key, int entity, int row)
+        {
+            var list = C("get_modifier_breakdown", key, entity, row).AsGodotArray();
+            var result = new TerniContribution[list.Count];
+            for (var i = 0; i < list.Count; i++)
+            {
+                var d = list[i].AsGodotDictionary();
+                result[i] = new TerniContribution(TerniModifier.From(d["modifier"].AsVector2I()), d["bundle"].AsInt32(),
+                                                  d["entity"].AsInt32(), d["row"].AsInt32(), d["value"].AsInt32());
+            }
+            return result;
+        }
+
+        // ---- saves and state ----
+
+        public byte[] Save() => C("save").AsByteArray();
+        public bool LoadSave(byte[] data) => C("load_save", data).AsBool();
+        /// <summary>A hash of the whole state, equal on every device that ran the same ticks.</summary>
+        public ulong GetStateHash() => unchecked((ulong)C("get_state_hash").AsInt64());
+
+        // ---- the device ----
+
+        public string DeviceName => C("get_device_name").AsString();
+        public TerniHealth Health
+        {
+            get
+            {
+                var d = C("get_health").AsGodotDictionary();
+                return new TerniHealth(d["usual_ms"].AsDouble(), d["recent_ms"].AsDouble(), d["ticks"].AsInt64(), d["slow"].AsBool());
+            }
+        }
+        public bool MoveToDevice(int device) => C("move_to_device", device).AsBool();
+        public string GetReport() => C("get_report").AsString();
+    }
+
+    /// <summary>
+    /// Wraps a TerniSimulation node, the node that runs a game folder from a scene, with
+    /// C# events for its signals.
+    /// </summary>
+    public sealed class TerniSimulation
+    {
+        /// <summary>The TerniSimulation node.</summary>
+        public Node Node { get; }
+        private TerniWorld _world;
+
+        public TerniSimulation(Node node)
+        {
+            if (node == null || node.GetClass() != "TerniSimulation")
+                throw new ArgumentException("Not a TerniSimulation node.", nameof(node));
+            Node = node;
+        }
+
+        // The callables connected for each handler: removing needs the same one.
+        private readonly Dictionary<(string, Delegate), Callable> _connected = new();
+
+        private void Connect(string signal, Delegate handler, Callable callable)
+        {
+            if (handler == null || _connected.ContainsKey((signal, handler)))
+                return;
+            _connected[(signal, handler)] = callable;
+            Node.Connect(signal, callable);
+        }
+
+        private void Disconnect(string signal, Delegate handler)
+        {
+            if (handler != null && _connected.Remove((signal, handler), out var callable) && Node.IsConnected(signal, callable))
+                Node.Disconnect(signal, callable);
+        }
+
+        /// <summary>A world started and its starting state is on the device.</summary>
+        public event Action Started
+        {
+            add => Connect("started", value, Callable.From(value));
+            remove => Disconnect("started", value);
+        }
+        /// <summary>A tick was collected: subscribed fields hold its results.</summary>
+        public event Action TickCompleted
+        {
+            add => Connect("tick_completed", value, Callable.From(value));
+            remove => Disconnect("tick_completed", value);
+        }
+        /// <summary>Loading, starting or a tick failed.</summary>
+        public event Action<string> Failed
+        {
+            add => Connect("failed", value, Callable.From(value));
+            remove => Disconnect("failed", value);
+        }
+
+        /// <summary>The world, or null before a start and after StopWorld().</summary>
+        public TerniWorld World
+        {
+            get
+            {
+                var obj = Node.Call("get_world").AsGodotObject();
+                if (obj == null)
+                    return _world = null;
+                if (_world == null || _world.Object != obj)
+                    _world = new TerniWorld(obj);
+                return _world;
+            }
+        }
+
+        public bool IsRunning => Node.Call("is_running").AsBool();
+        public bool IsStarting => Node.Call("is_starting").AsBool();
+        public long Ticks => Node.Call("get_ticks").AsInt64();
+        public string LastError => Node.Call("get_last_error").AsString();
+        public bool StartWorld() => Node.Call("start_world").AsBool();
+        public void StopWorld() => Node.Call("stop_world");
+        public bool Step() => Node.Call("step").AsBool();
+
+        public bool Paused
+        {
+            get => Node.Get("paused").AsBool();
+            set => Node.Set("paused", value);
+        }
+        public double TicksPerSecond
+        {
+            get => Node.Get("ticks_per_second").AsDouble();
+            set => Node.Set("ticks_per_second", value);
+        }
+        public string GameFolder
+        {
+            get => Node.Get("game_folder").AsString();
+            set => Node.Set("game_folder", value);
+        }
+    }
+}

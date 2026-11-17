@@ -1,13 +1,13 @@
 # Terni for Godot
 
 A GDExtension that runs a [Terni](https://github.com/ZBager/Terni) game folder from
-GDScript: the `TerniSimulation` node and the `TerniWorld` object. The simulation runs
+GDScript and C#: the `TerniSimulation` node and the `TerniWorld` object. The simulation runs
 on a Vulkan device of its own, next to the renderer, and gives the same results on
 every machine.
 
 Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). **Work in
 progress**: it runs in the editor, from the command line and in exported games on
-Linux, with a Terni tab in the debugger; C# and Windows are next.
+Linux, from GDScript and C#, with a Terni tab in the debugger; Windows is next.
 
 ## Build
 
@@ -58,6 +58,46 @@ and the error is also pushed to the debugger. Start options are a dictionary:
 
 By default the simulation runs on the GPU the engine renders with, if it can.
 
+## C#
+
+Godot makes no C# classes for extension classes, so the addon brings its own:
+`addons/terni/csharp/Terni.cs`, which Godot compiles into any C# project that has the
+addon. `Terni.TerniWorld` and `Terni.TerniSimulation` wrap the extension's objects with
+PascalCase methods, properties and C# events:
+
+```cs
+using Godot;
+using Terni;
+
+public partial class Towns : Node
+{
+    private TerniSimulation _simulation;
+    private int _town, _pop;
+
+    public override void _Ready()
+    {
+        _simulation = new TerniSimulation(GetNode("Simulation"));
+        _simulation.Started += OnStarted;       // each time a world has started
+        _simulation.TickCompleted += OnTick;
+    }
+
+    private void OnStarted()
+    {
+        var world = _simulation.World;
+        _town = world.Entity("town");
+        _pop = world.Subscribe(_town, "pop");
+    }
+
+    private void OnTick()
+    {
+        int[] pop = _simulation.World.GetSubscribed(_pop);
+        GD.Print("First town: ", TerniValue.ToDouble(pop[0], TerniFieldType.Quantity));
+    }
+}
+```
+
+`example-csharp/` is the galaxy in C#, with a self-test of the wrapper.
+
 ## The Terni tab
 
 While the game runs from the editor, the **Debugger** panel has a **Terni** tab: the
@@ -87,6 +127,7 @@ the licences of the libraries that come with the compiler.
 ```sh
 godot/test.sh                          # headless
 godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
+godot/test.sh --csharp                 # the C# example, with godot-mono
 GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, test there
 ```
 

@@ -23,3 +23,6 @@ godot/example/addons/
 godot/example/.godot/
 godot/example/Galaxy/spirv/
 godot/example/export_presets.cfg
+godot/example-csharp/addons/
+godot/example-csharp/.godot/
+godot/example-csharp/Galaxy/spirv/
