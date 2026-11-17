@@ -222,19 +222,29 @@ bool TerniWorld::Start(const TerniStartOptions& options)
         return Fail(TEXT("no game is loaded"));
     _bridge->stop();
     const String cache = options.CacheFolder.HasChars() ? options.CacheFolder : _folder / TEXT("spirv");
-    const bool compiler = terni_bridge::can_compile_rules();
-    if (options.CompileRules && !compiler && CompilerPath().HasChars())
-    {
-        String output;
-        if (!CompileRules(_folder, cache, output))
-            return Fail(String::Format(TEXT("the rules did not compile:\n{0}"), output));
-    }
     terni_bridge::StartOptions o;
     o.device = options.Device;
     o.preference = (int)options.Preference;
     o.cache_dir = ToStd(cache);
     o.cache_only = !options.CompileRules;
     o.validation = options.Validation;
+    if (options.CompileRules && !terni_bridge::can_compile_rules())
+    {
+        // From the cache first: a shipped game has every rule there and needs no compiler.
+        // Only when that fails (a rule is new or has changed) is the compiler run.
+        o.cache_only = true;
+        if (_bridge->start(o))
+        {
+            LOG(Info, "[Terni] {0} runs on {1}", _folder, GetDeviceName());
+            return true;
+        }
+        if (CompilerPath().HasChars())
+        {
+            String output;
+            if (!CompileRules(_folder, cache, output))
+                return Fail(String::Format(TEXT("the rules did not compile:\n{0}"), output));
+        }
+    }
     if (!Checked(_bridge->start(o)))
         return false;
     LOG(Info, "[Terni] {0} runs on {1}", _folder, GetDeviceName());

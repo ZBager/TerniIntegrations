@@ -1,0 +1,27 @@
+{
+	"ID": "7e2a1c0041c15b6f8a3c9d1e2f4b6a71",
+	"TypeName": "FlaxEditor.Content.Settings.BuildSettings",
+	"EngineBuild": 7014,
+	"Data": {
+	"OutputName": "${PROJECT_NAME}",
+	"Presets": [
+		{
+			"Name": "Release",
+			"Targets": [
+				{
+					"Name": "Linux",
+					"Output": "Output/Linux",
+					"Platform": 6,
+					"Mode": 2
+				},
+				{
+					"Name": "Windows",
+					"Output": "Output\\Windows",
+					"Platform": 2,
+					"Mode": 2
+				}
+			]
+		}
+	]
+}
+}

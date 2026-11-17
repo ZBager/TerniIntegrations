@@ -74,10 +74,20 @@ in game logic and in anything sent to other players.
 ### Rules and the SPIR-V cache
 
 Rules are compiled by `terni_compile_rules`, a program that the plugin's build puts
-beside its binaries, into the folder `spirv` inside the game folder. The editor runs it
-when a world starts; only changed rules are compiled. Ship the `spirv` folder with
-your game and players need no compiler. `TerniWorld.CompileRules` does the same from
-your own build step.
+beside its binaries, into the folder `spirv` inside the game folder. A world starts
+from that folder; only when a rule is new or has changed does the editor run the
+compiler. `TerniWorld.CompileRules` does the same from your own build step.
+
+### Cooked games
+
+Cooking needs no setup. Every game folder of the project (a folder with a `schema` and
+a `rules` folder in it, outside `Content`, `Source` and `Plugins`) has its rules
+compiled and is copied to the same place in the cooked game, with its `spirv` folder.
+The path a `TerniSimulation` script has works there unchanged. The cook log names each
+folder, and reports an error for one whose rules do not compile.
+
+The rule compiler is left out of the cooked game: players need neither it nor shaderc.
+A cooked game therefore cannot run rules that were changed after cooking.
 
 ## Example and test
 
@@ -90,13 +100,13 @@ FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
 
 It runs the galaxy for 200 ticks on every Vulkan device of the machine, with blocking
 and background ticks and through a save, and compares the state hash with the one
-Terni's own tools give.
+Terni's own tools give. `./test.sh --cooked` cooks the example for Linux first and runs
+the same test in the cooked game.
 
 ## Not done yet
 
 - Windows: the build scripts are written and have never been run.
-- Cooked games: the game folder and its `spirv` folder are not copied into the cooked
-  game yet, and a cooked game has not been tried.
+- Rules changed by players (mods) in a cooked game: the compiler is not shipped.
 - Stopping worlds when scripts reload in the editor is in place and has not been tested.
 - Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
