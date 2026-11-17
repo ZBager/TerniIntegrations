@@ -63,20 +63,7 @@ namespace
 
     Array<TerniWorld*> Worlds;
 
-    // Worlds hold a Vulkan device: let none outlive the scripts that made it, or the engine.
-    struct Hooks
-    {
-        Hooks()
-        {
-            Scripting::ScriptsReloading.Bind(&TerniWorld::StopAll);
-            Engine::RequestingExit.Bind(&TerniWorld::StopAll);
-        }
-        ~Hooks()
-        {
-            Scripting::ScriptsReloading.Unbind(&TerniWorld::StopAll);
-            Engine::RequestingExit.Unbind(&TerniWorld::StopAll);
-        }
-    } HooksInstance;
+
 
     // The folder this module was loaded from: terni_compile_rules is deployed beside it.
     String ModuleFolder()
@@ -106,6 +93,38 @@ namespace
         const String path = ModuleFolder() / name;
         return FileSystem::FileExists(path) ? path : String::Empty;
     }
+}
+
+// Worlds hold a Vulkan device: let none outlive the scripts that made it, or the engine.
+struct TerniHooks
+{
+    TerniHooks()
+    {
+        Scripting::ScriptsReloading.Bind(&TerniWorld::UnloadAll);
+        Engine::RequestingExit.Bind(&TerniWorld::StopAll);
+    }
+    ~TerniHooks()
+    {
+        Scripting::ScriptsReloading.Unbind(&TerniWorld::UnloadAll);
+        Engine::RequestingExit.Unbind(&TerniWorld::StopAll);
+    }
+};
+static TerniHooks HooksInstance;
+
+void TerniWorld::UnloadAll()
+{
+    int32 count = 0;
+    for (TerniWorld* world : Worlds)
+    {
+        if (!world->IsLoaded())
+            continue;
+        world->_bridge->unload();
+        world->_errors.Clear();
+        world->_warnings.Clear();
+        count++;
+    }
+    if (count > 0)
+        LOG(Info, "[Terni] scripts reload: unloaded {0} world(s)", count);
 }
 
 TerniWorld::TerniWorld(const SpawnParams& params)

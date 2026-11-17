@@ -9,11 +9,21 @@
 #                                                        runs the test in the cooked game
 #                                                        (the editor needs the Linux
 #                                                        platform files)
+#   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --reload   starts a world in the editor and
+#                                                        makes it rebuild and reload the
+#                                                        scripts: the world must be freed
+#                                                        and a new one must run
 set -euo pipefail
 cd "$(dirname "$0")/Example"
 : "${FLAX_EDITOR:?Set FLAX_EDITOR to the FlaxEditor program}"
 RESULT="$(mktemp)"
-if [[ "${1:-}" == "--cooked" ]]; then
+if [[ "${1:-}" == "--reload" ]]; then
+    rm -f "$RESULT.reloading"
+    TERNI_RELOAD_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" > /dev/null 2>&1 || true
+    LOG="Logs/$(ls -t Logs | head -1)"
+    (iconv -f utf-16 -t utf-8 "$LOG" 2>/dev/null || cat "$LOG") | grep -a -q "scripts reload: unloaded 1 world" \
+        || { echo "the editor did not free the world when the scripts reloaded"; exit 1; }
+elif [[ "${1:-}" == "--cooked" ]]; then
     rm -rf Output/Linux Galaxy/spirv   # the cook must compile the rules itself
     COOK=$(timeout -s KILL "${TIMEOUT:-1200}" "$FLAX_EDITOR" -std -headless -mute -null "-project=$PWD" -build Release.Linux 2>&1 || true)
     grep -E "\[Terni\]|Game building done" <<< "$COOK" || true

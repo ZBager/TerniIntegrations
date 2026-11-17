@@ -141,6 +141,11 @@ void World::stop() {
     impl_->subscriptions = 0;
 }
 
+void World::unload() {
+    stop();
+    impl_->game.reset();
+}
+
 bool World::loaded() const { return impl_->game != nullptr; }
 bool World::running() const { return impl_->sim != nullptr; }
 

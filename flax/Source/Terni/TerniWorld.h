@@ -353,6 +353,10 @@ private:
     Array<String> _warnings;
 
     bool Fail(const String& what) const;
+    // Scripts are reloading: frees everything every world holds. The world objects
+    // themselves may outlive the reload (a script can still reference one).
+    static void UnloadAll();
+    friend struct TerniHooks;
     // Passes a result of the bridge on; if the call failed, records and logs why.
     template<typename T>
     T Checked(T&& value) const

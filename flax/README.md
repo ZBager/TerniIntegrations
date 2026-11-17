@@ -65,6 +65,9 @@ public class Towns : Script
   `GetDevices`, `MoveToDevice`. Functions that return `bool` return true when they
   worked; after false, `LastError` says why, and the log has it too.
 - **`TerniValue`**: raw values to numbers for display, and back.
+- **Script reloads** in the editor free every world (device and game data) before the
+  plugin's code is replaced. A script that still holds a `TerniWorld` afterwards finds
+  it not loaded; load it again.
 - **Tools > Terni** (editor): the devices of the machine, the running worlds, and the
   values of any field, live.
 
@@ -114,13 +117,17 @@ FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
 
 It runs the galaxy for 200 ticks on every Vulkan device of the machine, with blocking
 and background ticks and through a save, and compares the state hash with the one
-Terni's own tools give. (On Windows: `test.bat`. The test makes wrong calls on purpose,
-so the editor's log ends with a few `[Terni]` errors even when it passes.) `./test.sh --cooked` cooks the example for Linux first, changes
-a rule in the cooked game as a mod would, and runs the same test there.
+Terni's own tools give. On Windows, run `test.bat`. The test makes wrong calls on
+purpose, so the editor's log ends with a few `[Terni]` errors even when it passes.
+
+- `./test.sh --cooked` cooks the example for Linux first, changes a rule in the cooked
+  game as a mod would, and runs the same test there.
+- `./test.sh --reload` (Windows: `test.bat reload`) starts a world in the editor, makes
+  the editor rebuild and reload the scripts, and checks that the world was freed and a
+  new one runs.
 
 ## Not done yet
 
-- Stopping worlds when scripts reload in the editor is in place and has not been tested.
 - Starting a world blocks the frame it is called in.
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
 - Visual Scripting: `TerniWorld` and `TerniSimulation` are open to it like any scripting

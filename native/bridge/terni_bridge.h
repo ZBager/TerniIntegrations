@@ -65,6 +65,7 @@ public:
     bool set_capacity(int entity, int rows);
     bool start(const StartOptions& options);
     void stop();
+    void unload();  // stop() and forget the game too
     bool loaded() const;
     bool running() const;
 
