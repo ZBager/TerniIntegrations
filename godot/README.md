@@ -6,8 +6,8 @@ on a Vulkan device of its own, next to the renderer, and gives the same results 
 every machine.
 
 Made for Godot 4.5 and later (built with godot-cpp 4.5, tested with 4.7). Tested on
-Linux and Windows, from GDScript and C#, with Vulkan and Direct3D 12; exported games
-have been tried on Linux only.
+Linux and Windows, from GDScript and C#, with Vulkan and Direct3D 12, in the editor
+and in exported games (a C# project has not been exported yet).
 
 ## Build
 
