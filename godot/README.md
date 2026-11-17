@@ -100,7 +100,8 @@ public partial class Towns : Node
 }
 ```
 
-`example-csharp/` is the galaxy in C#, with a self-test of the wrapper.
+`example-csharp/` is the galaxy in C#, with a self-test of the wrapper. Like Godot's own
+C# projects it targets .NET 8, and needs the .NET 8 SDK or newer.
 
 ## The Terni tab
 

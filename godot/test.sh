@@ -28,7 +28,9 @@ if [[ "${1:-}" == "--csharp" ]]; then
     if [[ ! -d .godot ]]; then
         "$MONO" --headless --path . --import > /dev/null 2>&1 || true
     fi
-    "$MONO" --headless --path . --build-solutions --quit > /dev/null 2>&1
+    BUILD_LOG="$(mktemp)"
+    "$MONO" --headless --path . --build-solutions --quit > "$BUILD_LOG" 2>&1 || true
+    [[ -f .godot/mono/temp/bin/Debug/TerniExampleCs.dll ]] || { cat "$BUILD_LOG"; echo "the C# project did not build"; exit 1; }
     "$MONO" --headless --path . --import > /dev/null 2>&1
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$MONO" --headless --path . > /dev/null 2>&1 || true
 elif [[ "${1:-}" == "--export" ]]; then
