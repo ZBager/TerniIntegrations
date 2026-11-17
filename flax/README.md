@@ -100,7 +100,9 @@ and notices with a game that does.
 ## Example and test
 
 `Example/` is a small Flax project: a galaxy of three empires and five planets, a script
-that follows the population, and a self-test. Run the test with
+that shows the planets' population on screen as the simulation runs, and a self-test.
+A cooked game writes its log to `%LOCALAPPDATA%\Terni\Terni Example\Logs` on Windows
+and `~/.local/share/Terni/Terni Example/Logs` on Linux. Run the test with
 
 ```sh
 FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
