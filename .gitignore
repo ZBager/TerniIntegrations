@@ -1,31 +1,34 @@
+# Build output of every plugin
 build/
+
+# Flax: build output, and files Flax.Build generates from the Build.cs scripts
+# (project files, bindings, IDE settings)
 flax/ThirdParty/
-Binaries/
-Cache/
-Logs/
-Output/
-*.csproj
-*.sln
-*.slnx
-*.DotSettings.user
-*.code-workspace
-*.Gen.cs
-*.Gen.cpp
-*.Gen.h
-omnisharp.json
+flax/**/Binaries/
+flax/**/Cache/
+flax/**/Logs/
+flax/**/Output/
+flax/**/Properties/
+flax/**/.vscode/
+flax/**/*.csproj
+flax/**/*.sln
+flax/**/*.slnx
+flax/**/*.DotSettings.user
+flax/**/*.code-workspace
+flax/**/*.Gen.cs
+flax/**/*.Gen.cpp
+flax/**/*.Gen.h
+flax/**/omnisharp.json
+
+# Godot: build output, the copies of the addon in the examples, the editor's cache
+godot/addons/terni/bin/
+godot/example*/addons/
+godot/example*/.godot/
+godot/example*/export_presets.cfg
+
+# Compiled rules, made again from the game folders
+spirv/
+
+# IDEs
 .vs/
 .idea/
-spirv/
-.vscode/
-Properties/
-godot/addons/terni/bin/
-godot/example/addons/
-godot/example/.godot/
-godot/example/Galaxy/spirv/
-godot/example/export_presets.cfg
-godot/example-csharp/addons/
-godot/example-csharp/.godot/
-godot/example-csharp/Galaxy/spirv/
-!godot/example-csharp/TerniExampleCs.csproj
-godot/example-csharp/export_presets.cfg
-!godot/example-csharp/TerniExampleCs.sln
