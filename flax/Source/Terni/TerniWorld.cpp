@@ -15,6 +15,7 @@
 #include "Engine/Scripting/Scripting.h"
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 
 #if PLATFORM_WINDOWS
@@ -115,6 +116,14 @@ namespace
         default:
             break;
         }
+    }
+
+    // One rule compiler at a time in this process: worlds that start together would
+    // otherwise compile the same rules into the same cache folder at once.
+    std::mutex& CompileMutex()
+    {
+        static std::mutex mutex;
+        return mutex;
     }
 
     String CompilerPath()
@@ -316,12 +325,19 @@ struct TerniWorld::StartJob
                 done = true;
                 return;
             }
+            std::lock_guard<std::mutex> lock(CompileMutex());
+            if (bridge->start(o)) // a world that started at the same time compiled them
+            {
+                done = true;
+                return;
+            }
+            const String fromCache = ToFlax(bridge->error());
             if (CompilerPath().HasChars())
             {
                 String output;
                 if (!CompileRules(folder, cache, output))
                 {
-                    failure = String::Format(TEXT("the rules did not compile:\n{0}"), output);
+                    failure = String::Format(TEXT("the rules did not compile:\n{0}\n(starting from the cache had failed: {1})"), output, fromCache);
                     done = true;
                     return;
                 }

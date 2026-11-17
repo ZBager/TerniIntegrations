@@ -41,6 +41,8 @@ static func run(folder: String, result_file: String) -> bool:
 		while not world.start_ready():
 			polls += 1
 		check(world.is_running() and not world.is_starting(), "[%s] started in the background (%d polls): %s" % [name, polls, world.get_last_error()])
+		if not world.is_running():
+			continue  # the rest would only repeat that
 		var planet := world.entity("planet")
 		var pop := world.subscribe(planet, "pop")
 

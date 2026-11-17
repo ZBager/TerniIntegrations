@@ -45,6 +45,8 @@ namespace Game
                     while (!world.StartReady())
                         polls++;
                     Check(world.IsRunning && !world.IsStarting, $"[{device.Name}] started in the background ({polls} polls): {world.LastError}");
+                    if (!world.IsRunning)
+                        continue; // the rest would only repeat that
                     var planet = world.Entity("planet");
                     var pop = world.Subscribe(planet, "pop");
 

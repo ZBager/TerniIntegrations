@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -74,6 +75,13 @@ String globalize(const String& path) {
     if (path.begins_with("res://") || path.begins_with("user://"))
         return ProjectSettings::get_singleton()->globalize_path(path);
     return path;
+}
+
+// One rule compiler at a time in this process: worlds that start together would otherwise
+// compile the same rules into the same cache folder at once.
+std::mutex& compile_mutex() {
+    static std::mutex mutex;
+    return mutex;
 }
 
 std::vector<TerniWorld*>& worlds() {
@@ -154,10 +162,17 @@ struct TerniWorld::StartJob {
                 done = true;
                 return;
             }
+            std::lock_guard<std::mutex> lock(compile_mutex());
+            if (bridge->start(o)) {  // a world that started at the same time compiled them
+                done = true;
+                return;
+            }
+            const String from_cache = to_godot(bridge->error());
             if (!compiler_path().is_empty()) {
                 const Dictionary result = TerniWorld::compile_rules(folder, cache);
                 if (!bool(result["ok"])) {
-                    failure = "the rules did not compile:\n" + String(result["output"]);
+                    failure = "the rules did not compile:\n" + String(result["output"]) +
+                              "\n(starting from the cache had failed: " + from_cache + ")";
                     done = true;
                     return;
                 }

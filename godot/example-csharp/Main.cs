@@ -90,6 +90,8 @@ public partial class Main : Control
                 {
                 }
                 Check(world.IsRunning, $"[{device.Name}] started: {world.LastError}");
+                if (!world.IsRunning)
+                    continue; // the rest would only repeat that
                 var planet = world.Entity("planet");
                 var pop = world.Subscribe(planet, "pop");
                 for (var i = 0; i < 100; i++)
