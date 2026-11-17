@@ -144,5 +144,5 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 ## Not done yet
 
 - Sharing the renderer's GPU by name, and shipping a software Vulkan driver as a fallback.
-- A visual script run end to end: the check below covers what the editor offers, not
+- A visual script run end to end: `test.sh --visual` covers what the editor offers, not
   a graph that has been built and played.
