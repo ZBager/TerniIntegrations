@@ -32,8 +32,9 @@ bool any(const uint8_t* bytes, size_t n) {
 
 bool vulkan_renderer_gpu(void* instance, void* get_instance_proc_addr, void* physical_device, RendererGpu& gpu) {
     gpu = RendererGpu();
-    if (!instance || !get_instance_proc_addr || !physical_device) return false;
-    const auto get_proc = reinterpret_cast<PFN_vkGetInstanceProcAddr>(get_instance_proc_addr);
+    if (!instance || !physical_device) return false;
+    const auto get_proc = get_instance_proc_addr ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(get_instance_proc_addr)
+                                                 : &vkGetInstanceProcAddr;
     const auto inst = static_cast<VkInstance>(instance);
     const auto phys = static_cast<VkPhysicalDevice>(physical_device);
     const auto properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(get_proc(inst, "vkGetPhysicalDeviceProperties"));
@@ -60,6 +61,23 @@ bool vulkan_renderer_gpu(void* instance, void* get_instance_proc_addr, void* phy
     return true;
 }
 
+#ifdef _WIN32
+namespace {
+bool describe(IDXGIAdapter* adapter, RendererGpu& gpu) {
+    DXGI_ADAPTER_DESC desc;
+    if (FAILED(adapter->GetDesc(&desc))) return false;
+    static_assert(sizeof(desc.AdapterLuid) == 8, "an adapter LUID is 8 bytes");
+    std::memcpy(gpu.luid, &desc.AdapterLuid, 8);  // LowPart then HighPart, as Vulkan's deviceLUID
+    gpu.has_luid = any(gpu.luid, 8);
+    gpu.vendor_id = desc.VendorId;
+    char name[256];
+    const int n = WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name), nullptr, nullptr);
+    gpu.name = n > 0 ? std::string(name) : std::string();
+    return true;
+}
+}  // namespace
+#endif
+
 bool dxgi_renderer_gpu(unsigned adapter_index, RendererGpu& gpu) {
     gpu = RendererGpu();
 #ifdef _WIN32
@@ -68,23 +86,23 @@ bool dxgi_renderer_gpu(unsigned adapter_index, RendererGpu& gpu) {
     IDXGIAdapter1* adapter = nullptr;
     bool ok = false;
     if (SUCCEEDED(factory->EnumAdapters1(adapter_index, &adapter))) {
-        DXGI_ADAPTER_DESC1 desc;
-        if (SUCCEEDED(adapter->GetDesc1(&desc))) {
-            static_assert(sizeof(desc.AdapterLuid) == 8, "an adapter LUID is 8 bytes");
-            std::memcpy(gpu.luid, &desc.AdapterLuid, 8);  // LowPart then HighPart, as Vulkan's deviceLUID
-            gpu.has_luid = any(gpu.luid, 8);
-            gpu.vendor_id = desc.VendorId;
-            char name[256];
-            const int n = WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name), nullptr, nullptr);
-            gpu.name = n > 0 ? std::string(name) : std::string();
-            ok = true;
-        }
+        ok = describe(adapter, gpu);
         adapter->Release();
     }
     factory->Release();
     return ok;
 #else
     (void)adapter_index;
+    return false;
+#endif
+}
+
+bool dxgi_adapter_gpu(void* adapter, RendererGpu& gpu) {
+    gpu = RendererGpu();
+#ifdef _WIN32
+    return adapter && describe(static_cast<IDXGIAdapter*>(adapter), gpu);
+#else
+    (void)adapter;
     return false;
 #endif
 }

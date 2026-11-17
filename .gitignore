@@ -18,3 +18,7 @@ omnisharp.json
 spirv/
 .vscode/
 Properties/
+godot/addons/terni/bin/
+godot/example/addons/
+godot/example/.godot/
+godot/example/Galaxy/spirv/

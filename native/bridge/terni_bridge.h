@@ -63,11 +63,14 @@ struct RendererGpu {
     std::string name;
 };
 // From a Vulkan renderer's own objects: VkInstance, its vkGetInstanceProcAddr and the
-// VkPhysicalDevice it renders with. False if they are missing.
+// VkPhysicalDevice it renders with. A null vkGetInstanceProcAddr means the Vulkan
+// loader's, which a renderer that uses the system loader shares. False if they are missing.
 bool vulkan_renderer_gpu(void* instance, void* get_instance_proc_addr, void* physical_device, RendererGpu& gpu);
 // For a DirectX renderer: DXGI adapter number `adapter_index`. False if there is no such
 // adapter, and always on systems other than Windows.
 bool dxgi_renderer_gpu(unsigned adapter_index, RendererGpu& gpu);
+// For a DirectX renderer that gives its adapter object (an IDXGIAdapter*). Windows only.
+bool dxgi_adapter_gpu(void* adapter, RendererGpu& gpu);
 // The usable device that is the renderer's GPU, or -1: matched by UUID, then LUID, then by
 // vendor and name if exactly one usable device has them.
 int find_device(const RendererGpu& gpu, std::string& error);

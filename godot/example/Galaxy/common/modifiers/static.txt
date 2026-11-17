@@ -1,0 +1,4 @@
+# Modifier bundles: named sets of key values. Hosts (tech, focus, event systems)
+# apply them to entities through Terni's API; history can apply them at start.
+good_harvest = { pop_growth = 0.01 }
+war_economy  = { pop_growth = -0.005  tax_efficiency = 0.25 }

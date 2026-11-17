@@ -1,0 +1,4 @@
+empire = { id = ROM  treasury = 1000  stock = { 100 50 20 } }
+empire = { id = CAR  treasury = 500   stock = { 80 60 40 }
+           add_modifier = { name = war_economy } }
+empire = { id = EGY  treasury = 3000000000   stock = { 10 10 10 } }   # past 2^31: exercises the 2-word treasury

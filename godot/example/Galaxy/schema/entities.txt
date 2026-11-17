@@ -1,0 +1,33 @@
+# Entity types and their fields. Every value is 32-bit on the GPU.
+empire = {
+    capacity = 64
+    treasury = money64                       # grows forever: int64 value, 2 x 32-bit on the GPU
+    income   = agg                           # summed from planets every tick (cleared in rules/stages.txt)
+    stock    = { type = agg size = 3 }       # 3 resources: food, minerals, energy
+}
+
+planet = {
+    capacity  = 4096
+    owner     = ref:empire
+    housing   = quantity
+    pop       = quantity
+    tax       = quantity
+    stability = { type = rate default = 50 }
+    unrest_events = count
+}
+
+# Constants. Values live in common/, so mods can change them without touching rules.
+defines = {
+    growth_rate   = rate
+    tax_rate      = rate
+    unrest_chance = rate
+    unrest_loss   = rate
+}
+
+# Modifier keys (additive, Paradox-style). `inherit = owner`: a planet's total is its
+# own instances plus its owner empire's. Rules read them as planet_mod_<key>(p).
+modifier_keys = {
+    pop_growth     = { applies_to = planet  type = rate  inherit = owner }
+    tax_efficiency = { applies_to = planet  type = rate  inherit = owner }
+}
+modifiers = { capacity = 1024 }
