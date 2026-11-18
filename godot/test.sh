@@ -9,7 +9,8 @@
 #                          arguments go to Godot, e.g. ./test.sh --window --gpu-index 0
 #   ./test.sh --csharp     the C# example, headless, with godot-mono (GODOT_MONO)
 #   ./test.sh --export     exports the example for Linux, changes a rule in the exported
-#                          game as a mod would, and runs the test there. Needs Godot's
+#                          game as a mod would, puts the example mod beside it, and runs
+#                          the test there. Needs Godot's
 #                          export templates: installed, or the folder holding
 #                          linux_release.x86_64 in GODOT_TEMPLATES
 #   ./test.sh --export-csharp  the same with the C# example and godot-mono; .NET export
@@ -31,6 +32,7 @@ if [[ "${1:-}" == "--csharp" ]]; then
         "$MONO" --headless --path . --import > /dev/null 2>&1 || true
     fi
     BUILD_LOG="$(mktemp)"
+    rm -f .godot/mono/temp/bin/Debug/TerniExampleCs.dll   # so that a failed build is not hidden by an old one
     "$MONO" --headless --path . --build-solutions --quit > "$BUILD_LOG" 2>&1 || true
     [[ -f .godot/mono/temp/bin/Debug/TerniExampleCs.dll ]] || { cat "$BUILD_LOG"; echo "the C# project did not build"; exit 1; }
     "$MONO" --headless --path . --import > /dev/null 2>&1
@@ -75,6 +77,8 @@ PRESET
     [[ -x "$OUT/terni_compile_rules" && -f "$OUT/Terni-NOTICES.txt" ]] || { echo "the rule compiler or the notices are not in the export"; exit 1; }
     # A rule changed after exporting, as a mod would: the exported game must compile it itself.
     echo "// changed after exporting" >> "$OUT/Galaxy/rules/planet_growth.glsl"
+    # A mod installed beside the game, as players install them; res://Mods finds it there.
+    cp -r Mods "$OUT/"
     BEFORE=$(ls "$OUT/Galaxy/spirv" | wc -l)
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$OUT/$NAME.x86_64" --headless > /dev/null 2>&1 || true
     [[ $(ls "$OUT/Galaxy/spirv" | wc -l) -gt $BEFORE ]] || { echo "the exported game did not compile the changed rule"; exit 1; }

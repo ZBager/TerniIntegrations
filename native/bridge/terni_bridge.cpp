@@ -9,6 +9,8 @@
 #include <stdexcept>
 
 #include <terni/game.hpp>
+#include <terni/state_hash.hpp>
+#include <terni/vk_context.hpp>
 
 namespace terni_bridge {
 
@@ -28,6 +30,7 @@ std::vector<Device> devices(std::string& error) {
             device.why_not = d.why_not;
             device.cpu = d.cpu();
             device.usable = d.usable;
+            device.robustness = static_cast<int>(d.robustness);
             out.push_back(std::move(device));
         }
     } catch (const std::exception& e) {
@@ -37,6 +40,18 @@ std::vector<Device> devices(std::string& error) {
 }
 
 bool can_compile_rules() { return terni::can_compile_rules(); }
+
+bool save_checksum(const uint8_t* data, size_t size, uint64_t& checksum, std::string& error) {
+    checksum = 0;
+    error.clear();
+    try {
+        checksum = terni::save_checksum(std::vector<uint8_t>(data, data + size));
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+    }
+    return false;
+}
 
 int find_device(const RendererGpu& gpu, std::string& error) {
     error.clear();
@@ -66,6 +81,22 @@ struct World::Impl {
     std::unique_ptr<terni::Game> game;
     std::unique_ptr<terni::GameSim> sim;
     int subscriptions = 0;
+    bool lost = false;           // the device was lost; the simulation is gone
+    std::string lost_reason;
+    bool simulate_lost = false;  // the next call that uses the device finds it lost
+
+    // The device is lost: the simulation can do nothing more, so free it. Terni's
+    // destructors wait for the device without checking the result, so this is safe.
+    void lose(const std::string& reason) {
+        lost = true;
+        lost_reason = reason;
+        simulate_lost = false;
+        sim.reset();
+        subscriptions = 0;
+    }
+    void check_simulated_loss() {
+        if (simulate_lost) throw terni::DeviceLost("Vulkan device lost (simulated by simulate_device_lost())");
+    }
 
     const terni::EntityDef* entity(int index) const {
         return game && index >= 0 && index < static_cast<int>(game->entities.size()) ? &game->entities[static_cast<size_t>(index)]
@@ -79,8 +110,12 @@ struct World::Impl {
     void need_game() const {
         if (!game) throw std::runtime_error("no game is loaded");
     }
-    void need_sim() const {
+    void need_sim() {
+        if (!sim && lost)
+            throw std::runtime_error("the device was lost (" + lost_reason +
+                                     "): start the world again, on this device or another, and load the last save");
         if (!sim) throw std::runtime_error("the world is not running");
+        check_simulated_loss();
     }
     void need_entity(int index) const {
         if (!entity(index)) throw std::runtime_error("no such entity type");
@@ -92,12 +127,16 @@ struct World::Impl {
 };
 
 namespace {
-// Runs `body`; an exception becomes `error` and the fallback value.
-template <class T, class Body>
-T guard(std::string& error, T fallback, Body&& body) {
+// Runs `body`; an exception becomes `error` and the fallback value. A lost device also
+// stops the simulation.
+template <class Impl, class T, class Body>
+T guard(Impl* impl, std::string& error, T fallback, Body&& body) {
     error.clear();
     try {
         return body();
+    } catch (const terni::DeviceLost& e) {
+        error = e.what();
+        impl->lose(error);
     } catch (const std::exception& e) {
         error = e.what();
     } catch (...) {
@@ -115,12 +154,19 @@ World::~World() {
 }
 
 bool World::load(const std::string& folder, std::vector<std::string>& errors, std::vector<std::string>& warnings) {
+    return load(std::vector<std::string>{folder}, errors, warnings);
+}
+
+bool World::load(const std::vector<std::string>& folders, std::vector<std::string>& errors,
+                 std::vector<std::string>& warnings) {
     stop();
     impl_->game.reset();
+    impl_->lost = false;
     errors.clear();
     warnings.clear();
-    return guard(error_, false, [&] {
-        std::unique_ptr<terni::Game> game = terni::load_game(folder);
+    return guard(impl_, error_, false, [&] {
+        if (folders.empty()) throw std::runtime_error("no game folder given");
+        std::unique_ptr<terni::Game> game = terni::load_game(folders);
         for (const terni::GameDiagnostic& w : game->warnings) warnings.push_back(w.text());
         for (const terni::GameDiagnostic& e : game->errors) errors.push_back(e.text());
         if (!game->ok())
@@ -132,7 +178,7 @@ bool World::load(const std::string& folder, std::vector<std::string>& errors, st
 }
 
 bool World::set_capacity(int entity, int rows) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_game();
         if (impl_->sim) throw std::runtime_error("capacities are set before the world starts");
         impl_->need_entity(entity);
@@ -143,7 +189,7 @@ bool World::set_capacity(int entity, int rows) {
 
 bool World::start(const StartOptions& options) {
     stop();
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_game();
         terni::GameSimOptions o;
         o.device = options.device;
@@ -151,6 +197,8 @@ bool World::start(const StartOptions& options) {
         o.spirv_cache_dir = options.cache_dir;
         o.cache_only = options.cache_only || !terni::can_compile_rules();
         o.validation = options.validation;
+        impl_->lost = false;
+        impl_->simulate_lost = false;
         impl_->sim = std::make_unique<terni::GameSim>(*impl_->game, o);
         impl_->subscriptions = 0;
         return true;
@@ -163,18 +211,20 @@ void World::stop() {
     } catch (...) {
     }
     impl_->subscriptions = 0;
+    impl_->simulate_lost = false;
 }
 
 void World::unload() {
     stop();
     impl_->game.reset();
+    impl_->lost = false;
 }
 
 bool World::loaded() const { return impl_->game != nullptr; }
 bool World::running() const { return impl_->sim != nullptr; }
 
 bool World::tick() {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->sim->tick();
         return true;
@@ -182,7 +232,7 @@ bool World::tick() {
 }
 
 bool World::begin_tick() {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->sim->begin_tick();
         return true;
@@ -190,11 +240,15 @@ bool World::begin_tick() {
 }
 
 bool World::tick_ready() {
-    return guard(error_, true, [&] { return !impl_->sim || impl_->sim->tick_ready(); });
+    return guard(impl_, error_, true, [&] {
+        if (!impl_->sim) return true;
+        impl_->check_simulated_loss();
+        return impl_->sim->tick_ready();
+    });
 }
 
 bool World::end_tick() {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->sim->end_tick();
         return true;
@@ -286,12 +340,12 @@ int World::find_modifier_key(const std::string& name) const {
 }
 
 uint64_t World::checksum() const {
-    return guard(error_, uint64_t{0}, [&] { return impl_->game ? terni::game_checksum(*impl_->game) : uint64_t{0}; });
+    return guard(impl_, error_, uint64_t{0}, [&] { return impl_->game ? terni::game_checksum(*impl_->game) : uint64_t{0}; });
 }
 
 bool World::read_field(int entity, const std::string& field, int first_row, int rows, std::vector<int32_t>& words) {
     words.clear();
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->need_entity(entity);
         words = impl_->sim->read_field(static_cast<uint32_t>(entity), field, static_cast<uint32_t>(std::max(first_row, 0)),
@@ -301,7 +355,7 @@ bool World::read_field(int entity, const std::string& field, int first_row, int 
 }
 
 bool World::write_field(int entity, const std::string& field, int row, const int32_t* words, size_t count) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         impl_->sim->write_field(static_cast<uint32_t>(entity), field, static_cast<uint32_t>(row),
@@ -311,7 +365,7 @@ bool World::write_field(int entity, const std::string& field, int row, const int
 }
 
 bool World::write_values(int entity, const std::string& field, int row, int index, const int32_t* words, size_t count) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         if (index < 0) throw std::runtime_error("the index is negative");
@@ -322,7 +376,7 @@ bool World::write_values(int entity, const std::string& field, int row, int inde
 }
 
 int World::subscribe(int entity, const std::string& field, int first_row, int rows) {
-    return guard(error_, -1, [&] {
+    return guard(impl_, error_, -1, [&] {
         impl_->need_sim();
         impl_->need_entity(entity);
         const uint32_t id =
@@ -335,7 +389,7 @@ int World::subscribe(int entity, const std::string& field, int first_row, int ro
 
 const int32_t* World::subscribed(int id, int& words) const {
     words = 0;
-    return guard(error_, static_cast<const int32_t*>(nullptr), [&] {
+    return guard(impl_, error_, static_cast<const int32_t*>(nullptr), [&] {
         impl_->need_sim();
         if (id < 0 || id >= impl_->subscriptions)
             throw std::runtime_error("no such subscription: id " + std::to_string(id) + ", this world has " +
@@ -348,7 +402,7 @@ const int32_t* World::subscribed(int id, int& words) const {
 }
 
 int World::create_entity(int entity) {
-    return guard(error_, -1, [&] {
+    return guard(impl_, error_, -1, [&] {
         impl_->need_sim();
         impl_->need_entity(entity);
         const uint32_t row = impl_->sim->create_entity(static_cast<uint32_t>(entity));
@@ -357,7 +411,7 @@ int World::create_entity(int entity) {
 }
 
 bool World::destroy_entity(int entity, int row) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         return impl_->sim->destroy_entity(static_cast<uint32_t>(entity), static_cast<uint32_t>(row));
@@ -365,14 +419,14 @@ bool World::destroy_entity(int entity, int row) {
 }
 
 bool World::alive(int entity, int row) const {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         return impl_->sim && impl_->row_ok(entity, row) &&
                impl_->sim->entity_alive(static_cast<uint32_t>(entity), static_cast<uint32_t>(row));
     });
 }
 
 int World::generation(int entity, int row) const {
-    return guard(error_, 0, [&] {
+    return guard(impl_, error_, 0, [&] {
         return impl_->sim && impl_->row_ok(entity, row)
                    ? static_cast<int>(impl_->sim->entity_generation(static_cast<uint32_t>(entity), static_cast<uint32_t>(row)))
                    : 0;
@@ -380,22 +434,41 @@ int World::generation(int entity, int row) const {
 }
 
 int World::count(int entity) const {
-    return guard(error_, 0, [&] {
+    return guard(impl_, error_, 0, [&] {
         if (!impl_->entity(entity)) return 0;
         return impl_->sim ? static_cast<int>(impl_->sim->entity_count(static_cast<uint32_t>(entity)))
                           : static_cast<int>(impl_->game->tables[static_cast<size_t>(entity)].count);
     });
 }
 
+const uint32_t* World::alive_bits(int entity, int& words) const {
+    words = 0;
+    return guard(impl_, error_, static_cast<const uint32_t*>(nullptr), [&] {
+        impl_->need_sim();
+        impl_->need_entity(entity);
+        const std::span<const uint32_t> bits = impl_->sim->alive_bits(static_cast<uint32_t>(entity));
+        words = static_cast<int>(bits.size());
+        return bits.data();
+    });
+}
+
+int World::free_count(int entity) {
+    return guard(impl_, error_, -1, [&] {
+        impl_->need_sim();
+        impl_->need_entity(entity);
+        return static_cast<int>(impl_->sim->entities_free(static_cast<uint32_t>(entity)));
+    });
+}
+
 int World::alive_count(int entity) const {
-    return guard(error_, 0, [&] {
+    return guard(impl_, error_, 0, [&] {
         return impl_->sim && impl_->entity(entity) ? static_cast<int>(impl_->sim->entities_alive(static_cast<uint32_t>(entity)))
                                                    : 0;
     });
 }
 
 Modifier World::add_modifier(int bundle, int entity, int row, int32_t scale, int duration) {
-    return guard(error_, Modifier{}, [&] {
+    return guard(impl_, error_, Modifier{}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         if (bundle < 0 || bundle >= static_cast<int>(impl_->game->bundles.size())) throw std::runtime_error("no such bundle");
@@ -407,26 +480,26 @@ Modifier World::add_modifier(int bundle, int entity, int row, int32_t scale, int
 }
 
 bool World::set_modifier_scale(Modifier m, int32_t scale) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         return impl_->sim->set_modifier_scale(terni::ModifierHandle{m.slot, m.version}, scale);
     });
 }
 
 bool World::remove_modifier(Modifier m) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         return impl_->sim->remove_modifier(terni::ModifierHandle{m.slot, m.version});
     });
 }
 
 bool World::modifier_alive(Modifier m) const {
-    return guard(error_, false,
+    return guard(impl_, error_, false,
                  [&] { return impl_->sim && impl_->sim->modifier_alive(terni::ModifierHandle{m.slot, m.version}); });
 }
 
 int32_t World::modifier_total(int key, int entity, int row) {
-    return guard(error_, int32_t{0}, [&] {
+    return guard(impl_, error_, int32_t{0}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         if (key < 0 || key >= static_cast<int>(impl_->game->modifier_keys.size()))
@@ -436,7 +509,7 @@ int32_t World::modifier_total(int key, int entity, int row) {
 }
 
 std::vector<Contribution> World::modifier_breakdown(int key, int entity, int row) {
-    return guard(error_, std::vector<Contribution>{}, [&] {
+    return guard(impl_, error_, std::vector<Contribution>{}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
         if (key < 0 || key >= static_cast<int>(impl_->game->modifier_keys.size()))
@@ -458,7 +531,7 @@ std::vector<Contribution> World::modifier_breakdown(int key, int entity, int row
 
 bool World::save(std::vector<uint8_t>& data) {
     data.clear();
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         data = impl_->sim->save();
         return true;
@@ -466,26 +539,77 @@ bool World::save(std::vector<uint8_t>& data) {
 }
 
 bool World::load_save(const uint8_t* data, size_t size) {
-    return guard(error_, false, [&] {
+    std::vector<std::string> fitted;
+    return load_save(data, size, false, fitted);
+}
+
+bool World::load_save(const uint8_t* data, size_t size, bool by_name, std::vector<std::string>& fitted) {
+    fitted.clear();
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
-        impl_->sim->load(std::vector<uint8_t>(data, data + size));
+        fitted = impl_->sim->load(std::vector<uint8_t>(data, data + size),
+                                  by_name ? terni::SaveMatch::ByName : terni::SaveMatch::SameGame);
         return true;
     });
 }
 
 uint64_t World::state_hash() {
-    return guard(error_, uint64_t{0}, [&] {
+    return guard(impl_, error_, uint64_t{0}, [&] {
         impl_->need_sim();
         return terni::combine(terni::hash_fields(impl_->sim->snapshot()));
     });
 }
 
+namespace {
+std::vector<Hash> to_bridge(const std::vector<terni::FieldHash>& hashes) {
+    std::vector<Hash> out;
+    out.reserve(hashes.size());
+    for (const terni::FieldHash& h : hashes) out.push_back(Hash{h.name, h.hash});
+    return out;
+}
+}  // namespace
+
+bool World::field_hashes(std::vector<Hash>& hashes) {
+    hashes.clear();
+    return guard(impl_, error_, false, [&] {
+        impl_->need_sim();
+        hashes = to_bridge(impl_->sim->field_hashes());
+        return true;
+    });
+}
+
+bool World::entity_hashes(std::vector<Hash>& hashes) {
+    hashes.clear();
+    return guard(impl_, error_, false, [&] {
+        impl_->need_sim();
+        hashes = to_bridge(terni::entity_hashes(impl_->sim->field_hashes()));
+        return true;
+    });
+}
+
+std::vector<StageTime> World::stage_times() const {
+    return guard(impl_, error_, std::vector<StageTime>{}, [&] {
+        std::vector<StageTime> out;
+        if (impl_->sim)
+            for (const terni::StageTime& t : impl_->sim->stage_times()) {
+                StageTime item;
+                item.name = t.name;
+                item.ran = t.ran;
+                item.last_ms = t.last_ms;
+                item.runs = t.runs;
+                item.total_ms = t.total_ms;
+                out.push_back(std::move(item));
+            }
+        return out;
+    });
+}
+
 std::string World::device_name() const {
-    return guard(error_, std::string(), [&] { return impl_->sim ? impl_->sim->device_name() : std::string(); });
+    return guard(impl_, error_, std::string(), [&] { return impl_->sim ? impl_->sim->device_name() : std::string(); });
 }
 
 Health World::health() const {
-    return guard(error_, Health{}, [&] {
+    return guard(impl_, error_, Health{}, [&] {
         Health out;
         if (impl_->sim) {
             const terni::DeviceHealth h = impl_->sim->device_health();
@@ -499,7 +623,7 @@ Health World::health() const {
 }
 
 bool World::move_to_device(int device) {
-    return guard(error_, false, [&] {
+    return guard(impl_, error_, false, [&] {
         impl_->need_sim();
         if (device < 0) throw std::runtime_error("no such device");
         impl_->sim->move_to_device(static_cast<uint32_t>(device));
@@ -508,7 +632,13 @@ bool World::move_to_device(int device) {
 }
 
 std::string World::report() const {
-    return guard(error_, std::string(), [&] { return impl_->sim ? impl_->sim->report() : std::string(); });
+    return guard(impl_, error_, std::string(), [&] { return impl_->sim ? impl_->sim->report() : std::string(); });
+}
+
+bool World::device_lost() const { return impl_->lost; }
+
+void World::simulate_device_lost() {
+    if (impl_->sim) impl_->simulate_lost = true;
 }
 
 }  // namespace terni_bridge

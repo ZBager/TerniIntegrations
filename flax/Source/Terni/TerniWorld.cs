@@ -29,6 +29,14 @@ namespace Terni
         }
     }
 
+    partial struct TerniStageTime
+    {
+        /// <summary>
+        /// GPU time per run, in milliseconds.
+        /// </summary>
+        public double AverageMs => Runs > 0 ? TotalMs / Runs : 0;
+    }
+
     partial struct TerniContribution
     {
         /// <summary>

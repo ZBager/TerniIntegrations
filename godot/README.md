@@ -51,14 +51,18 @@ func _on_tick() -> void:
 	print("First town: ", TerniWorld.to_float(values[0], TerniWorld.FIELD_QUANTITY))
 ```
 
-`TerniWorld` has the same calls as in the other plugins, in snake_case: `load`,
-`start(options)` / `begin_start(options)`, `tick` / `begin_tick` / `tick_ready` /
+`TerniWorld` has the same calls as in the other plugins, in snake_case: `load(folder,
+mods)`, `start(options)` / `begin_start(options)`, `tick` / `begin_tick` / `tick_ready` /
 `end_tick`, `read_field`, `write_field`, `write_value`, `subscribe`, `get_subscribed`,
-`create_entity`, `add_modifier` (a handle is a `Vector2i`), `save` / `load_save`,
-`get_state_hash`, `get_devices`, `find_renderer_device`, `move_to_device`. Calls that
-return `bool` return true when they worked; after false, `get_last_error()` says why,
-and the error is also pushed to the debugger. Start options are a dictionary:
-`device`, `ignore_renderer`, `preference`, `cache_folder`, `cache_only`, `validation`.
+`create_entity`, `get_alive_bits`, `get_free_count`, `add_modifier` (a handle is a
+`Vector2i`), `save` / `load_save(data, by_name)`, `get_state_hash`, `get_field_hashes`,
+`get_entity_hashes`, `get_stage_times`, `get_devices`, `find_renderer_device`,
+`move_to_device`. Calls that return `bool` return true when they worked; after false,
+`get_last_error()` says why, and the error is also pushed to the debugger. Start
+options are a dictionary: `device`, `ignore_renderer`, `preference`, `cache_folder`,
+`cache_only`, `validation`. Each device in `get_devices()` has `robustness`: what a
+rule that reads or writes past the end of a field does there (`ROBUSTNESS_DEFINED`, on
+every current desktop driver: reads give 0 and writes are dropped, the same everywhere).
 
 By default the simulation runs on the GPU the engine renders with, if it can: it keeps
 a laptop's second GPU asleep and follows the player's choice of GPU. The node's
@@ -68,6 +72,55 @@ the simulation.
 Rules are compiled by `terni_compile_rules`, which comes with the addon, into the folder
 `spirv` inside the game folder. A world starts from that folder and runs the compiler
 only for rules that are new or have changed.
+
+### Mods
+
+A mod is a folder laid out like the game's, holding only what it changes; Terni's
+[Data format](https://github.com/ZBager/Terni/blob/main/docs/data-format.md#mods) says
+how files combine. Give the node's **Mod Folders**, or load them yourself, in order:
+
+```gdscript
+world.load("res://Galaxy", ["user://mods/faster_growth", "res://Mods/more_planets"])
+```
+
+Mods change the game checksum (`get_checksum()`), so multiplayer peers with different
+mods can tell before they play. Their rules are compiled into the game folder's cache
+the first time, in exported games too. Point modders to Terni's `terni_check`, which
+loads, compiles and runs a mod the way the game will. Give each mod folder a
+`descriptor.mod` file: the export step then knows it is not a game folder and leaves it
+out; players put mods beside the game (`res://Mods/x` finds `Mods/x` beside the program).
+
+### Saves from an earlier version of the game
+
+A patched game, or one with other mods, has another checksum, and `load_save(data)`
+refuses saves made before. Load them by name: `load_save(data, true)` fits the save to
+this game (new fields and entity types start as the game describes them, removed ones
+are dropped) and `get_fitted_lines()` says what was fitted.
+`TerniWorld.save_checksum(data)` tells beforehand which game a save was made with.
+
+### A lost device
+
+A rule that runs too long (an endless loop in a mod, say) makes the driver reset the
+GPU, and the simulation's state on it is gone. The world stops and emits `device_lost`;
+the node emits `device_lost` too, and not `failed`. Start again, on the same device or
+another, and load the last save:
+
+```gdscript
+simulation.device_lost.connect(func(error: String):
+	push_warning("The simulation restarts from the autosave: " + error)
+	simulation.start_world()
+	simulation.get_world().load_save(autosave))
+```
+
+`simulate_device_lost()` makes the next call that uses the device find it lost, to test
+this without resetting a GPU.
+
+### Desync checks
+
+`get_field_hashes()` and `get_entity_hashes()` hash the state on the device and bring
+back two words per field: cheap enough for lockstep peers to compare every few ticks
+(each is a dictionary of name to hash, equal on every device that ran the same ticks).
+`get_state_hash()` reads the whole state back and is much slower.
 
 ## C#
 
@@ -116,10 +169,12 @@ C# solution**; the plugin adds nothing to that.
 
 While the game runs from the editor, the **Debugger** panel has a **Terni** tab: the
 devices of the machine (the one the editor renders with marked), each `TerniSimulation`
-of the running game with its device, tick, time per tick and entity counts, and the
-values of any field you pick, refreshed twice a second. The game runs in its own
-process, so the simulations send this over the debugger connection; an exported game
-sends nothing.
+of the running game with its device, tick, time per tick, entity counts, a state hash
+per entity type, and the GPU time of each stage, and the values of any field you pick,
+refreshed twice a second. The game runs in its own process, so the simulations send
+this over the debugger connection; an exported game sends nothing. The **Monitors**
+tab has the GPU time of each simulation's tick and stages, under **Terni** and the
+node's name.
 
 ## Exported games
 
@@ -128,7 +183,8 @@ folders out of the exported package (their `.gdignore` says so), so the plugin's
 step compiles each game folder's rules and copies the folder, with its `spirv` folder,
 beside the exported program, at the same path relative to it. A `TerniSimulation` with
 `res://Galaxy` finds `Galaxy` beside the program. A game folder is any folder of the
-project with a `schema` and a `rules` folder in it, outside `addons`.
+project with a `schema` and a `rules` folder in it, outside `addons` and without a
+`descriptor.mod`.
 
 The rule compiler (`terni_compile_rules`, with shaderc where it is not linked in) and
 `Terni-NOTICES.txt` go beside the program too. An exported game starts from the `spirv`
@@ -146,7 +202,7 @@ the Godot programs. Exporting on Windows is done from the editor.
 godot/test.sh                          # headless
 godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
 godot/test.sh --csharp                 # the C# example, with godot-mono
-GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, test there
+GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, add the mod, test there
 GODOT_MONO_TEMPLATES=/path/to/templates godot/test.sh --export-csharp   # the same with the C# example
 ```
 

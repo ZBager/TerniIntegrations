@@ -67,6 +67,19 @@ namespace
         return out;
     }
 
+    Array<TerniHash> ToFlax(const std::vector<terni_bridge::Hash>& hashes)
+    {
+        Array<TerniHash> out;
+        for (const terni_bridge::Hash& h : hashes)
+        {
+            TerniHash item;
+            item.Name = ToFlax(h.name);
+            item.Hash = h.hash;
+            out.Add(item);
+        }
+        return out;
+    }
+
     Array<TerniWorld*> Worlds;
 
 
@@ -195,6 +208,12 @@ void TerniWorld::Report() const
 {
     if (!Bridge()->error().empty())
         Fail(ToFlax(Bridge()->error()));
+    if (_bridge->device_lost() && !_lostReported)
+    {
+        _lostReported = true;
+        TerniWorld* self = const_cast<TerniWorld*>(this);
+        self->DeviceLost(self);
+    }
 }
 
 Array<TerniDevice> TerniWorld::GetDevices()
@@ -210,6 +229,7 @@ Array<TerniDevice> TerniWorld::GetDevices()
         device.IsCpu = d.cpu;
         device.Usable = d.usable;
         device.WhyNot = ToFlax(d.why_not);
+        device.Robustness = (TerniBufferRobustness)d.robustness;
         out.Add(device);
     }
     if (!error.empty())
@@ -245,6 +265,11 @@ void TerniWorld::StopAll()
 
 bool TerniWorld::CompileRules(const StringView& gameFolder, const StringView& cacheFolder, String& output)
 {
+    return CompileRulesWithMods(gameFolder, Array<String>(), cacheFolder, output);
+}
+
+bool TerniWorld::CompileRulesWithMods(const StringView& gameFolder, const Array<String>& mods, const StringView& cacheFolder, String& output)
+{
     const String compiler = CompilerPath();
     if (compiler.IsEmpty())
     {
@@ -253,7 +278,10 @@ bool TerniWorld::CompileRules(const StringView& gameFolder, const StringView& ca
     }
     CreateProcessSettings settings;
     settings.FileName = compiler;
-    settings.Arguments = String::Format(TEXT("\"{0}\" \"{1}\""), gameFolder, cacheFolder);
+    settings.Arguments = String::Format(TEXT("\"{0}\""), gameFolder);
+    for (const String& mod : mods)
+        settings.Arguments += String::Format(TEXT(" \"{0}\""), mod);
+    settings.Arguments += String::Format(TEXT(" \"{0}\""), cacheFolder);
     settings.LogOutput = false;
     settings.SaveOutput = true;
     settings.WaitForEnd = true;
@@ -264,18 +292,44 @@ bool TerniWorld::CompileRules(const StringView& gameFolder, const StringView& ca
     return code == 0;
 }
 
+uint64 TerniWorld::GetSaveChecksum(const Span<byte>& data)
+{
+    uint64_t checksum = 0;
+    std::string error;
+    if (!terni_bridge::save_checksum(data.Get(), (size_t)data.Length(), checksum, error))
+        LOG(Error, "[Terni] {0}", ToFlax(error));
+    return checksum;
+}
+
 bool TerniWorld::Load(const StringView& gameFolder)
 {
+    return LoadWithMods(gameFolder, Array<String>());
+}
+
+bool TerniWorld::LoadWithMods(const StringView& gameFolder, const Array<String>& mods)
+{
     _folder = gameFolder;
+    _mods = mods;
     _errors.Clear();
     _warnings.Clear();
+    _lostReported = false;
+    std::vector<std::string> folders { ToStd(gameFolder) };
+    for (const String& mod : mods)
+    {
+        if (!FileSystem::DirectoryExists(mod))
+        {
+            Bridge()->stop();
+            return Fail(String::Format(TEXT("there is no mod folder {0}"), mod));
+        }
+        folders.push_back(ToStd(mod));
+    }
     if (!FileSystem::DirectoryExists(gameFolder))
     {
         Bridge()->stop();
         return Fail(String::Format(TEXT("there is no game folder {0}"), gameFolder));
     }
     std::vector<std::string> errors, warnings;
-    const bool ok = Bridge()->load(ToStd(gameFolder), errors, warnings);
+    const bool ok = Bridge()->load(folders, errors, warnings);
     _errors = ToFlax(errors);
     _warnings = ToFlax(warnings);
     for (const String& warning : _warnings)
@@ -298,6 +352,7 @@ struct TerniWorld::StartJob
     terni_bridge::StartOptions options;
     bool cacheFirst = false; // try the cache alone before running the compiler
     String folder, cache;
+    Array<String> mods;
     String failure; // empty: started
     bool matchRenderer = false;
     terni_bridge::RendererGpu gpu;
@@ -335,7 +390,7 @@ struct TerniWorld::StartJob
             if (CompilerPath().HasChars())
             {
                 String output;
-                if (!CompileRules(folder, cache, output))
+                if (!CompileRulesWithMods(folder, mods, cache, output))
                 {
                     failure = String::Format(TEXT("the rules did not compile:\n{0}\n(starting from the cache had failed: {1})"), output, fromCache);
                     done = true;
@@ -367,6 +422,7 @@ TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
     StartJob* job = new StartJob();
     job->bridge = _bridge;
     job->folder = _folder;
+    job->mods = _mods;
     job->cache = options.CacheFolder.HasChars() ? options.CacheFolder : _folder / TEXT("spirv");
     job->options.device = options.UseDevice ? Math::Max(options.Device, 0) : -1;
     job->options.preference = (int)options.Preference;
@@ -389,6 +445,8 @@ bool TerniWorld::FinishStart() const
     if (job->thread.joinable())
         job->thread.join();
     const bool ok = job->failure.IsEmpty();
+    if (ok)
+        _lostReported = false;
     if (ok && job->renderer >= 0)
         LOG(Info, "[Terni] {0} runs on {1}, the GPU the engine renders with", _folder, ToFlax(_bridge->device_name()));
     else if (ok)
@@ -657,6 +715,21 @@ int32 TerniWorld::GetAliveCount(int32 entity) const
     return Checked(Bridge()->alive_count(entity));
 }
 
+Array<uint32> TerniWorld::GetAliveBits(int32 entity) const
+{
+    int32 words = 0;
+    const uint32_t* bits = Checked(Bridge()->alive_bits(entity, words));
+    Array<uint32> out;
+    if (bits)
+        out.Set(bits, words);
+    return out;
+}
+
+int32 TerniWorld::GetFreeCount(int32 entity)
+{
+    return Checked(Bridge()->free_count(entity));
+}
+
 TerniModifier TerniWorld::AddModifier(int32 bundle, int32 entity, int32 row, int32 scale, int32 duration)
 {
     return ToFlax(Checked(Bridge()->add_modifier(bundle, entity, row, scale, duration)));
@@ -709,14 +782,50 @@ Array<byte> TerniWorld::Save()
     return out;
 }
 
-bool TerniWorld::LoadSave(const Span<byte>& data)
+bool TerniWorld::LoadSave(const Span<byte>& data, bool byName)
 {
-    return Checked(Bridge()->load_save(data.Get(), (size_t)data.Length()));
+    std::vector<std::string> fitted;
+    const bool ok = Bridge()->load_save(data.Get(), (size_t)data.Length(), byName, fitted);
+    _fitted = ToFlax(fitted);
+    for (const String& line : _fitted)
+        LOG(Info, "[Terni] save: {0}", line);
+    return Checked(ok);
 }
 
 uint64 TerniWorld::GetStateHash()
 {
     return Checked(Bridge()->state_hash());
+}
+
+Array<TerniHash> TerniWorld::GetFieldHashes()
+{
+    std::vector<terni_bridge::Hash> hashes;
+    Checked(Bridge()->field_hashes(hashes));
+    return ToFlax(hashes);
+}
+
+Array<TerniHash> TerniWorld::GetEntityHashes()
+{
+    std::vector<terni_bridge::Hash> hashes;
+    Checked(Bridge()->entity_hashes(hashes));
+    return ToFlax(hashes);
+}
+
+Array<TerniStageTime> TerniWorld::GetStageTimes() const
+{
+    Array<TerniStageTime> out;
+    for (const terni_bridge::StageTime& t : Bridge()->stage_times())
+    {
+        TerniStageTime item;
+        item.Name = ToFlax(t.name);
+        item.Ran = t.ran;
+        item.LastMs = t.last_ms;
+        item.Runs = t.runs;
+        item.TotalMs = t.total_ms;
+        out.Add(item);
+    }
+    Report();
+    return out;
 }
 
 String TerniWorld::GetDeviceName() const
@@ -746,4 +855,14 @@ bool TerniWorld::MoveToDevice(int32 device)
 String TerniWorld::GetReport() const
 {
     return ToFlax(Bridge()->report());
+}
+
+bool TerniWorld::GetIsDeviceLost() const
+{
+    return Bridge()->device_lost();
+}
+
+void TerniWorld::SimulateDeviceLost()
+{
+    Bridge()->simulate_device_lost();
 }

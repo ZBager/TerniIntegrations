@@ -11,13 +11,16 @@ namespace Game
     /// <summary>
     /// Checks the plugin against what Terni gives on its own: the state hash of the galaxy
     /// example after 200 ticks, on every device, with blocking and background ticks, and a
-    /// save that continues to the same state. Writes the result to the file named by
-    /// TERNI_EXAMPLE_TEST.
+    /// save that continues to the same state. Then hashes on the device, stage times, a lost
+    /// device and a mod. Writes the result to the file named by TERNI_EXAMPLE_TEST.
     /// </summary>
     public static class SelfTest
     {
         /// <summary>State hash of the galaxy example after 200 ticks, as terni_run prints it.</summary>
         public const ulong Expected = 0xad93f051a2965dfb;
+
+        /// <summary>A mod for the galaxy example: other growth, a new bundle and a new entity type.</summary>
+        public const string Mod = "Mods/FasterGrowth";
 
         public static void Run(TerniSimulation simulation, string resultFile)
         {
@@ -34,6 +37,10 @@ namespace Game
                 var folder = simulation.ResolveFolder(simulation.GameFolder);
                 var devices = TerniWorld.GetDevices();
                 Check(devices.Any(d => d.Usable), $"{devices.Length} devices, at least one usable");
+                Check(devices.Where(d => d.Usable).All(d => Enum.IsDefined(d.Robustness)),
+                      "buffer robustness per device: " + string.Join(", ", devices.Where(d => d.Usable).Select(d => d.Robustness)));
+                TerniHash[] firstHashes = null;
+                string firstDevice = null;
 
                 foreach (var device in devices.Where(d => d.Usable))
                 {
@@ -67,6 +74,22 @@ namespace Game
                     Check(world.Ticks == 200, $"[{device.Name}] 200 ticks");
                     Check(end == Expected, $"[{device.Name}] state hash {end:x16}, expected {Expected:x16}");
 
+                    // Hashes computed on the device: the same on every device.
+                    var hashes = world.GetFieldHashes();
+                    var entityHashes = world.GetEntityHashes();
+                    Check(hashes.Any(h => h.Name == "planet.pop") && entityHashes.Any(h => h.Name == "planet") && entityHashes.Any(h => h.Name == "terni"),
+                          $"[{device.Name}] hashes on the device: {hashes.Length} fields, {entityHashes.Length} entity types");
+                    if (firstHashes == null)
+                    {
+                        firstHashes = hashes;
+                        firstDevice = device.Name;
+                    }
+                    else
+                        Check(hashes.SequenceEqual(firstHashes), $"[{device.Name}] the same field hashes as on {firstDevice}");
+                    var stages = world.GetStageTimes();
+                    var growth = stages.FirstOrDefault(t => t.Name == "planet_growth");
+                    Check(growth.Ran && growth.Runs == 200, $"[{device.Name}] GPU time of {stages.Length} stages (planet_growth: {growth.LastMs:0.0000} ms)");
+
                     // Subscribed data is what a read from the device gives.
                     var read = world.ReadField(planet, "pop");
                     var subscribed = world.Subscribed(pop).ToArray();
@@ -77,7 +100,7 @@ namespace Game
                     Check(world.LoadSave(save) && world.Ticks == 100 && world.GetStateHash() == middle, $"[{device.Name}] save restores tick 100");
                     for (var i = 0; i < 100; i++)
                         world.Tick();
-                    Check(world.GetStateHash() == Expected, $"[{device.Name}] the save continues to the same hash");
+                    Check(world.GetStateHash() == Expected && world.GetFieldHashes().SequenceEqual(hashes), $"[{device.Name}] the save continues to the same hash");
 
                     // Host writes and modifiers reach the simulation; bad calls fail politely.
                     var sicilia = world.FindRow(planet, "sicilia");
@@ -137,7 +160,11 @@ namespace Game
                 // A folder with a mistake reports file:line and does not start.
                 var broken = new TerniWorld();
                 Check(!broken.Load(folder + "_missing") && broken.LastError.Length > 0, "a missing folder is an error");
+                Check(!broken.LoadWithMods(folder, new[] { simulation.ResolveFolder(Mod) + "_missing" }) && broken.LastError.Length > 0, "a missing mod folder is an error");
                 FlaxEngine.Object.Destroy(broken);
+
+                CheckDeviceLost(folder, Check);
+                CheckMod(folder, simulation.ResolveFolder(Mod), Check);
             }
             catch (Exception e)
             {
@@ -147,6 +174,109 @@ namespace Game
             log.WriteLine(ok ? "PASSED" : "FAILED");
             File.WriteAllText(resultFile, log.ToString());
             Debug.Log("Terni self-test:\n" + log);
+        }
+
+        // A lost device, simulated: a real one would reset the GPU.
+        private static void CheckDeviceLost(string folder, Action<bool, string> check)
+        {
+            var world = new TerniWorld();
+            var signalled = 0;
+            world.DeviceLost += w => signalled++;
+            if (!world.Load(folder) || !world.Start(new TerniStartOptions()))
+            {
+                check(false, "lost device: the world starts: " + world.LastError);
+                FlaxEngine.Object.Destroy(world);
+                return;
+            }
+            for (var i = 0; i < 100; i++)
+                world.Tick();
+            var autosave = world.Save();
+            world.SimulateDeviceLost();
+            check(!world.Tick() && world.IsDeviceLost && !world.IsRunning && signalled == 1, $"a lost device stops the world and is signalled: {world.LastError}");
+            check(!world.Tick() && signalled == 1, "calls after it fail, without another event");
+            check(world.Start(new TerniStartOptions()) && !world.IsDeviceLost && world.LoadSave(autosave), "the world starts again and loads the last save");
+            for (var i = 0; i < 100; i++)
+                world.Tick();
+            check(world.GetStateHash() == Expected, "and goes on to the same state");
+            // Found while a tick is in flight.
+            world.BeginTick();
+            world.SimulateDeviceLost();
+            while (!world.TickReady())
+            {
+            }
+            check(world.IsDeviceLost && !world.TickInFlight && signalled == 2, "a device lost during a background tick is found");
+            world.Stop();
+            FlaxEngine.Object.Destroy(world);
+
+            // TerniSimulation: DeviceLost, not Failed.
+            var actor = new EmptyActor();
+            var simulation = actor.AddScript<TerniSimulation>();
+            simulation.GameFolder = folder;
+            simulation.StartInBackground = false;
+            simulation.Paused = true;
+            var events = new System.Collections.Generic.List<string>();
+            simulation.DeviceLost += (s, e) => events.Add("DeviceLost");
+            simulation.Failed += (s, e) => events.Add("Failed");
+            check(simulation.StartWorld(), "a TerniSimulation script starts: " + simulation.LastError);
+            simulation.World.SimulateDeviceLost();
+            check(!simulation.Step() && simulation.IsDeviceLost && events.SequenceEqual(new[] { "DeviceLost" }) && simulation.LastError.Length > 0,
+                  $"TerniSimulation invokes DeviceLost, not Failed ({string.Join(", ", events)})");
+            simulation.StopWorld();
+            FlaxEngine.Object.Destroy(actor);
+        }
+
+        // The game's folder with a mod on top: its rules compiled, saves of the game alone
+        // loaded by name, and the mod's entity type, whose rows come and go.
+        private static void CheckMod(string folder, string mod, Action<bool, string> check)
+        {
+            var game = new TerniWorld();
+            var modded = new TerniWorld();
+            try
+            {
+                if (!game.Load(folder) || !game.Start(new TerniStartOptions()))
+                {
+                    check(false, "mod: the game starts: " + game.LastError);
+                    return;
+                }
+                for (var i = 0; i < 100; i++)
+                    game.Tick();
+                var save = game.Save();
+                check(modded.LoadWithMods(folder, new[] { mod }) && modded.ModFolders.Length == 1 && modded.Checksum != game.Checksum &&
+                      modded.FindBundle("festival") >= 0 && modded.FindEntity("fleet") >= 0,
+                      "a mod loads on top of the game: its bundle, its entity type, another checksum");
+                check(modded.Start(new TerniStartOptions()), "the game with the mod starts, the mod's rules compiled: " + modded.LastError);
+                if (!modded.IsRunning)
+                    return;
+                check(TerniWorld.GetSaveChecksum(save) == game.Checksum && TerniWorld.GetSaveChecksum(new byte[] { 1, 2, 3 }) == 0,
+                      "GetSaveChecksum names the game a save was made with");
+                check(!modded.LoadSave(save), "a save of the game alone is refused as it is");
+                check(modded.LoadSave(save, true) && modded.Ticks == 100, "and loads by name: " + string.Join("; ", modded.FittedLines));
+                for (var i = 0; i < 100; i++)
+                {
+                    game.Tick();
+                    modded.Tick();
+                }
+                check(game.GetStateHash() == Expected && modded.GetStateHash() != game.GetStateHash(), "the mod's rules run");
+
+                var fleet = modded.Entity("fleet");
+                var free = modded.GetFreeCount(fleet);
+                var row = modded.CreateEntity(fleet);
+                var bits = modded.GetAliveBits(fleet);
+                check(free == 64 && row == 0 && modded.GetFreeCount(fleet) == 63 && bits.Length > 0 && (bits[0] & 1) == 1,
+                      $"free rows and alive bits of a dynamic entity type ({free} free, row {row})");
+                modded.DestroyEntity(fleet, row);
+                modded.Tick();
+                check((modded.GetAliveBits(fleet)[0] & 1) == 0 && modded.GetFreeCount(fleet) == 64, "a destroyed row is free again a tick later");
+                check(modded.GetAliveBits(modded.Entity("planet")).Length == 0 && modded.LastError.Length > 0,
+                      "alive bits of a type that is not dynamic are an error, not a crash");
+            }
+            finally
+            {
+                game.Stop();
+                modded.Stop();
+                FlaxEngine.Object.Destroy(game);
+                FlaxEngine.Object.Destroy(modded);
+            }
         }
     }
 }

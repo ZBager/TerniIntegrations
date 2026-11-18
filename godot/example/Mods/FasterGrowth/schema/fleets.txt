@@ -1,0 +1,7 @@
+# An entity type the game does not have: fleets the host creates and destroys.
+fleet = {
+    capacity = 64
+    dynamic  = yes
+    home     = ref:empire
+    strength = { type = int  default = 100 }
+}

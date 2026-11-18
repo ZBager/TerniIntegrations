@@ -5,7 +5,8 @@
 # Runs the example's self-test: the galaxy example on every Vulkan device, checked
 # against the state hash Terni gives on its own.
 #   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh            in a headless editor
-#   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --cooked   cooks the example for Linux and
+#   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --cooked   cooks the example for Linux, puts
+#                                                        the example mod beside it and
 #                                                        runs the test in the cooked game
 #                                                        (the editor needs the Linux
 #                                                        platform files)
@@ -38,6 +39,8 @@ elif [[ "${1:-}" == "--cooked" ]]; then
     GAME=$(find Output/Linux -maxdepth 1 -type f -executable ! -name '*.so*' ! -name terni_compile_rules | head -1)
     # A rule changed after cooking, as a mod would: the cooked game must compile it itself.
     echo "// changed after cooking" >> Output/Linux/Galaxy/rules/planet_growth.glsl
+    # A mod installed beside the game, as players install them.
+    cp -r Mods Output/Linux/
     BEFORE=$(ls Output/Linux/Galaxy/spirv | wc -l)
     TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$GAME" -headless -mute > /dev/null 2>&1 || true
     [[ $(ls Output/Linux/Galaxy/spirv | wc -l) -gt $BEFORE ]] || { echo "the cooked game did not compile the changed rule"; exit 1; }

@@ -3,7 +3,8 @@
 #
 # Puts Terni game folders beside an exported game. A game folder is a folder of the
 # project with a "schema" and a "rules" folder in it (and a .gdignore, so that Godot does
-# not import the rules). Godot leaves such folders out of the exported package, so each is
+# not import the rules). A folder with a descriptor.mod is a mod, not a game: mods are
+# not exported (players put them beside the game). Godot leaves such folders out of the exported package, so each is
 # copied, with its rules compiled into its "spirv" folder, to the same path relative to
 # the exported program: the res:// path a TerniSimulation has works there unchanged. The
 # rule compiler, the libraries it needs and Terni-NOTICES.txt go beside the program too.
@@ -57,6 +58,8 @@ static func find_game_folders() -> PackedStringArray:
 
 
 static func _find(folder: String, depth: int, found: PackedStringArray) -> void:
+	if FileAccess.file_exists(folder.path_join("descriptor.mod")):
+		return
 	if DirAccess.dir_exists_absolute(folder.path_join("schema")) and DirAccess.dir_exists_absolute(folder.path_join("rules")):
 		found.append(folder)
 		return

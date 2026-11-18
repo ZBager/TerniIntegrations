@@ -30,8 +30,53 @@ namespace Terni
     /// <summary>Which device to choose when none is named.</summary>
     public enum TerniDevicePreference { Discrete, Integrated, Cpu }
 
+    /// <summary>What a rule that reads or writes past the end of a field does on a device.</summary>
+    public enum TerniBufferRobustness
+    {
+        /// <summary>Undefined: the device may crash or corrupt other memory.</summary>
+        None,
+        /// <summary>The access stays inside the field's buffer, in a way each driver chooses.</summary>
+        Bounded,
+        /// <summary>Reads give 0 and writes are dropped, the same on every device.</summary>
+        Defined,
+    }
+
     /// <summary>A Vulkan device the simulation can run on.</summary>
-    public readonly record struct TerniDevice(int Index, string Name, string Type, bool IsCpu, bool Usable, string WhyNot);
+    public readonly record struct TerniDevice(int Index, string Name, string Type, bool IsCpu, bool Usable, string WhyNot,
+                                              TerniBufferRobustness Robustness);
+
+    /// <summary>A hash of one field ("planet.pop") or of one entity type's fields ("planet"), computed on the device.</summary>
+    public readonly record struct TerniHash(string Name, ulong Hash);
+
+    /// <summary>GPU time of one stage: in the last tick (if it ran) and over its runs since the start.</summary>
+    public readonly record struct TerniStageTime(string Name, bool Ran, double LastMs, long Runs, double TotalMs)
+    {
+        public double AverageMs => Runs > 0 ? TotalMs / Runs : 0;
+    }
+
+    /// <summary>C# events over a Godot object's signals, removable again.</summary>
+    internal sealed class SignalEvents
+    {
+        private readonly GodotObject _object;
+        // The callables connected for each handler: removing needs the same one.
+        private readonly Dictionary<(string, Delegate), Callable> _connected = new();
+
+        public SignalEvents(GodotObject obj) => _object = obj;
+
+        public void Connect(string signal, Delegate handler, Callable callable)
+        {
+            if (handler == null || _connected.ContainsKey((signal, handler)))
+                return;
+            _connected[(signal, handler)] = callable;
+            _object.Connect(signal, callable);
+        }
+
+        public void Disconnect(string signal, Delegate handler)
+        {
+            if (handler != null && _connected.Remove((signal, handler), out var callable) && _object.IsConnected(signal, callable))
+                _object.Disconnect(signal, callable);
+        }
+    }
 
     /// <summary>A modifier instance. Old handles are harmless once it is gone.</summary>
     public readonly record struct TerniModifier(int Slot, int Version)
@@ -118,6 +163,20 @@ namespace Terni
         public TerniWorld(GodotObject world)
         {
             Object = world ?? throw new ArgumentNullException(nameof(world));
+            _events = new SignalEvents(world);
+        }
+
+        private readonly SignalEvents _events;
+
+        /// <summary>
+        /// The device was lost (a rule ran too long and the driver reset the GPU, or the GPU
+        /// went away). The world has stopped: Start() it again, on this device or another,
+        /// and load the last save. The text says what failed.
+        /// </summary>
+        public event Action<string> DeviceLost
+        {
+            add => _events.Connect("device_lost", value, Callable.From(value));
+            remove => _events.Disconnect("device_lost", value);
         }
 
         private Variant C(string method, params Variant[] args) => Object.Call(method, args);
@@ -133,7 +192,8 @@ namespace Terni
             {
                 var d = list[i].AsGodotDictionary();
                 result[i] = new TerniDevice(d["index"].AsInt32(), d["name"].AsString(), d["type"].AsString(),
-                                            d["is_cpu"].AsBool(), d["usable"].AsBool(), d["why_not"].AsString());
+                                            d["is_cpu"].AsBool(), d["usable"].AsBool(), d["why_not"].AsString(),
+                                            (TerniBufferRobustness)d["robustness"].AsInt32());
             }
             return result;
         }
@@ -142,18 +202,27 @@ namespace Terni
         public static int FindRendererDevice() => S("find_renderer_device").AsInt32();
         public static void StopAll() => S("stop_all");
 
-        /// <summary>Compiles a game folder's rules into the cache folder. Output: errors as file:line: message.</summary>
-        public static bool CompileRules(string gameFolder, string cacheFolder, out string output)
+        /// <summary>
+        /// Compiles a game folder's rules, with mod folders on top if given, into the cache
+        /// folder. Output: errors as file:line: message.
+        /// </summary>
+        public static bool CompileRules(string gameFolder, string cacheFolder, out string output, string[] mods = null)
         {
-            var r = S("compile_rules", gameFolder, cacheFolder).AsGodotDictionary();
+            var r = S("compile_rules", gameFolder, cacheFolder, mods ?? Array.Empty<string>()).AsGodotDictionary();
             output = r["output"].AsString();
             return r["ok"].AsBool();
         }
 
+        /// <summary>The checksum of the game a save was made with; 0 if the data is not an intact save.</summary>
+        public static ulong SaveChecksum(byte[] data) => unchecked((ulong)S("save_checksum", data).AsInt64());
+
         // ---- loading and running ----
 
-        /// <summary>Reads a game folder (res://, user:// or a path on disk).</summary>
-        public bool Load(string gameFolder) => C("load", gameFolder).AsBool();
+        /// <summary>
+        /// Reads a game folder (res://, user:// or a path on disk), with mod folders on top in
+        /// order: a file in a mod replaces the game's file of the same name, a new one adds to it.
+        /// </summary>
+        public bool Load(string gameFolder, params string[] mods) => C("load", gameFolder, mods ?? Array.Empty<string>()).AsBool();
         public bool SetCapacity(int entity, int rows) => C("set_capacity", entity, rows).AsBool();
         public bool Start(TerniStartOptions options = null) => C("start", (options ?? new TerniStartOptions()).ToGodot()).AsBool();
         /// <summary>Starts on a worker thread; poll StartReady(). Other calls meanwhile wait for the start.</summary>
@@ -165,6 +234,7 @@ namespace Terni
         public bool IsLoaded => C("is_loaded").AsBool();
         public bool IsRunning => C("is_running").AsBool();
         public string GameFolder => C("get_game_folder").AsString();
+        public string[] ModFolders => C("get_mod_folders").AsStringArray();
         public string LastError => C("get_last_error").AsString();
         public string[] Errors => C("get_errors").AsStringArray();
         public string[] Warnings => C("get_warnings").AsStringArray();
@@ -234,6 +304,10 @@ namespace Terni
         public int GetGeneration(int entity, int row) => C("get_generation", entity, row).AsInt32();
         public int GetCount(int entity) => C("get_count", entity).AsInt32();
         public int GetAliveCount(int entity) => C("get_alive_count", entity).AsInt32();
+        /// <summary>A dynamic entity type's rows: row r is alive if bit r % 32 of word r / 32 is set.</summary>
+        public int[] GetAliveBits(int entity) => C("get_alive_bits", entity).AsInt32Array();
+        /// <summary>Rows CreateEntity() would find now; -1 if the call failed.</summary>
+        public int GetFreeCount(int entity) => C("get_free_count", entity).AsInt32();
 
         // ---- modifiers ----
 
@@ -259,9 +333,40 @@ namespace Terni
         // ---- saves and state ----
 
         public byte[] Save() => C("save").AsByteArray();
-        public bool LoadSave(byte[] data) => C("load_save", data).AsBool();
+        /// <summary>
+        /// Restores a save. byName: a save of another version of the game (or other mods) is
+        /// fitted to this one by name; FittedLines says what was fitted.
+        /// </summary>
+        public bool LoadSave(byte[] data, bool byName = false) => C("load_save", data, byName).AsBool();
+        /// <summary>What the last LoadSave() fitted, one line each.</summary>
+        public string[] FittedLines => C("get_fitted_lines").AsStringArray();
         /// <summary>A hash of the whole state, equal on every device that ran the same ticks.</summary>
         public ulong GetStateHash() => unchecked((ulong)C("get_state_hash").AsInt64());
+        /// <summary>One hash per field, computed on the device: cheap enough to compare every few ticks.</summary>
+        public TerniHash[] GetFieldHashes() => Hashes(C("get_field_hashes").AsGodotDictionary());
+        /// <summary>One hash per entity type ("terni": the tick and counts), computed on the device.</summary>
+        public TerniHash[] GetEntityHashes() => Hashes(C("get_entity_hashes").AsGodotDictionary());
+        /// <summary>GPU time of each stage, in the order they run (Terni's own are named terni_...).</summary>
+        public TerniStageTime[] GetStageTimes()
+        {
+            var list = C("get_stage_times").AsGodotArray();
+            var result = new TerniStageTime[list.Count];
+            for (var i = 0; i < list.Count; i++)
+            {
+                var d = list[i].AsGodotDictionary();
+                result[i] = new TerniStageTime(d["name"].AsString(), d["ran"].AsBool(), d["last_ms"].AsDouble(),
+                                               d["runs"].AsInt64(), d["total_ms"].AsDouble());
+            }
+            return result;
+        }
+
+        private static TerniHash[] Hashes(GDDictionary d)
+        {
+            var result = new List<TerniHash>(d.Count);
+            foreach (var (name, hash) in d)
+                result.Add(new TerniHash(name.AsString(), unchecked((ulong)hash.AsInt64())));
+            return result.ToArray();
+        }
 
         // ---- the device ----
 
@@ -276,6 +381,10 @@ namespace Terni
         }
         public bool MoveToDevice(int device) => C("move_to_device", device).AsBool();
         public string GetReport() => C("get_report").AsString();
+        /// <summary>The device was lost; see DeviceLost.</summary>
+        public bool IsDeviceLost => C("is_device_lost").AsBool();
+        /// <summary>Makes the next call that uses the device find it lost, to test how the game recovers.</summary>
+        public void SimulateDeviceLost() => C("simulate_device_lost");
     }
 
     /// <summary>
@@ -293,42 +402,37 @@ namespace Terni
             if (node == null || node.GetClass() != "TerniSimulation")
                 throw new ArgumentException("Not a TerniSimulation node.", nameof(node));
             Node = node;
+            _events = new SignalEvents(node);
         }
 
-        // The callables connected for each handler: removing needs the same one.
-        private readonly Dictionary<(string, Delegate), Callable> _connected = new();
-
-        private void Connect(string signal, Delegate handler, Callable callable)
-        {
-            if (handler == null || _connected.ContainsKey((signal, handler)))
-                return;
-            _connected[(signal, handler)] = callable;
-            Node.Connect(signal, callable);
-        }
-
-        private void Disconnect(string signal, Delegate handler)
-        {
-            if (handler != null && _connected.Remove((signal, handler), out var callable) && Node.IsConnected(signal, callable))
-                Node.Disconnect(signal, callable);
-        }
+        private readonly SignalEvents _events;
 
         /// <summary>A world started and its starting state is on the device.</summary>
         public event Action Started
         {
-            add => Connect("started", value, Callable.From(value));
-            remove => Disconnect("started", value);
+            add => _events.Connect("started", value, Callable.From(value));
+            remove => _events.Disconnect("started", value);
         }
         /// <summary>A tick was collected: subscribed fields hold its results.</summary>
         public event Action TickCompleted
         {
-            add => Connect("tick_completed", value, Callable.From(value));
-            remove => Disconnect("tick_completed", value);
+            add => _events.Connect("tick_completed", value, Callable.From(value));
+            remove => _events.Disconnect("tick_completed", value);
         }
-        /// <summary>Loading, starting or a tick failed.</summary>
+        /// <summary>Loading, starting or a tick failed (a lost device is DeviceLost instead).</summary>
         public event Action<string> Failed
         {
-            add => Connect("failed", value, Callable.From(value));
-            remove => Disconnect("failed", value);
+            add => _events.Connect("failed", value, Callable.From(value));
+            remove => _events.Disconnect("failed", value);
+        }
+        /// <summary>
+        /// The device was lost and the world has stopped: StartWorld() again and load the
+        /// last save into World.
+        /// </summary>
+        public event Action<string> DeviceLost
+        {
+            add => _events.Connect("device_lost", value, Callable.From(value));
+            remove => _events.Disconnect("device_lost", value);
         }
 
         /// <summary>The world, or null before a start and after StopWorld().</summary>
@@ -349,6 +453,7 @@ namespace Terni
         public bool IsStarting => Node.Call("is_starting").AsBool();
         public long Ticks => Node.Call("get_ticks").AsInt64();
         public string LastError => Node.Call("get_last_error").AsString();
+        public bool IsDeviceLost => Node.Call("is_device_lost").AsBool();
         public bool StartWorld() => Node.Call("start_world").AsBool();
         public void StopWorld() => Node.Call("stop_world");
         public bool Step() => Node.Call("step").AsBool();
@@ -367,6 +472,12 @@ namespace Terni
         {
             get => Node.Get("game_folder").AsString();
             set => Node.Set("game_folder", value);
+        }
+        /// <summary>Mod folders loaded on top of the game folder, in order.</summary>
+        public string[] ModFolders
+        {
+            get => Node.Get("mod_folders").AsStringArray();
+            set => Node.Set("mod_folders", value);
         }
     }
 }

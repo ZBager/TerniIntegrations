@@ -81,6 +81,9 @@ public partial class Main : Control
         {
             var devices = TerniWorld.GetDevices();
             Check(devices.Any(d => d.Usable), $"{devices.Length} devices, at least one usable");
+            Check(devices.Where(d => d.Usable).All(d => Enum.IsDefined(d.Robustness)),
+                  "buffer robustness per device: " + string.Join(", ", devices.Where(d => d.Usable).Select(d => d.Robustness)));
+            TerniHash[] firstHashes = null;
             foreach (var device in devices.Where(d => d.Usable))
             {
                 var world = new TerniWorld();
@@ -106,6 +109,11 @@ public partial class Main : Control
                     world.EndTick();
                 }
                 Check(world.GetStateHash() == Expected, $"[{device.Name}] state hash {world.GetStateHash():x16}, expected {Expected:x16}");
+                var hashes = world.GetFieldHashes();
+                Check(hashes.Any(h => h.Name == "planet.pop") && world.GetEntityHashes().Any(h => h.Name == "planet") &&
+                      (firstHashes == null || hashes.SequenceEqual(firstHashes)), $"[{device.Name}] hashes on the device, the same on every device");
+                firstHashes ??= hashes;
+                Check(world.GetStageTimes().Any(t => t.Name == "planet_growth" && t.Ran && t.Runs == 200), $"[{device.Name}] GPU time per stage");
                 Check(world.GetSubscribed(pop).SequenceEqual(world.ReadField(planet, "pop").Take(world.GetCount(planet))),
                       $"[{device.Name}] subscribed pop equals read pop");
                 Check(world.LoadSave(save) && world.Ticks == 100, $"[{device.Name}] save restores tick 100");
@@ -132,6 +140,30 @@ public partial class Main : Control
             simulationNode.EmitSignal("tick_completed");
             Check(calls == 1, $"events can be removed ({calls} call)");
             simulationNode.Free();
+
+            // A lost device, simulated.
+            var lost = new TerniWorld();
+            var signalled = 0;
+            lost.DeviceLost += error => signalled++;
+            Check(lost.Load("res://Galaxy") && lost.Start(), "lost device: the world starts");
+            lost.Tick();
+            var autosave = lost.Save();
+            lost.SimulateDeviceLost();
+            Check(!lost.Tick() && lost.IsDeviceLost && !lost.IsRunning && signalled == 1, $"a lost device stops the world and is signalled: {lost.LastError}");
+            Check(lost.Start() && lost.LoadSave(autosave) && lost.Ticks == 1, "the world starts again and loads the last save");
+            lost.Stop();
+
+            // A mod on top of the game's folder, and a save of the game alone loaded by name.
+            var mod = "res://Mods/FasterGrowth";
+            var modded = new TerniWorld();
+            Check(modded.Load("res://Galaxy", mod) && modded.ModFolders.Length == 1 && modded.Checksum != lost.Checksum &&
+                  modded.FindEntity("fleet") >= 0 && modded.Start(), $"a mod loads and starts: {modded.LastError}");
+            Check(TerniWorld.SaveChecksum(autosave) == lost.Checksum && !modded.LoadSave(autosave) && modded.LoadSave(autosave, true) &&
+                  modded.FittedLines.Length > 0, "a save of the game alone loads by name: " + string.Join("; ", modded.FittedLines));
+            var fleet = modded.Entity("fleet");
+            var row = modded.CreateEntity(fleet);
+            Check(row == 0 && (modded.GetAliveBits(fleet)[0] & 1) == 1 && modded.GetFreeCount(fleet) == 63, "alive bits and free rows");
+            modded.Stop();
         }
         catch (Exception e)
         {

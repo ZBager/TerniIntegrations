@@ -24,6 +24,7 @@ public:
     bool is_starting() const { return world_.is_valid() && world_->is_starting(); }
     int64_t get_ticks() const { return world_.is_valid() ? world_->get_ticks() : 0; }
     String get_last_error() const { return last_error_; }
+    bool is_device_lost() const { return world_.is_valid() && world_->is_device_lost(); }
 
     void _ready() override;
     void _exit_tree() override;
@@ -32,6 +33,8 @@ public:
     // properties
     void set_game_folder(const String& v) { game_folder_ = v; }
     String get_game_folder() const { return game_folder_; }
+    void set_mod_folders(const PackedStringArray& v) { mod_folders_ = v; }
+    PackedStringArray get_mod_folders() const { return mod_folders_; }
     void set_cache_folder(const String& v) { cache_folder_ = v; }
     String get_cache_folder() const { return cache_folder_; }
     void set_auto_start(bool v) { auto_start_ = v; }
@@ -62,6 +65,7 @@ private:
     double due_ = 0;
 
     String game_folder_ = "res://sim";
+    PackedStringArray mod_folders_;
     String cache_folder_;
     bool auto_start_ = true;
     double ticks_per_second_ = 10;
@@ -74,8 +78,14 @@ private:
     bool compile_rules_ = true;
 
     double report_due_ = 0;
+    PackedStringArray monitors_;  // Performance custom monitors added for this simulation
 
     void on_started();
+    void add_monitors();
+    void remove_monitors();
+    double monitor_tick() const;
+    double monitor_stage(const String& stage) const;
+    void on_device_lost(const String& error);
     void fail_start();
     bool fail();
     void report_to_debugger(double delta);

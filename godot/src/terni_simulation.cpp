@@ -7,6 +7,7 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/engine_debugger.hpp>
+#include <godot_cpp/classes/performance.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
 namespace godot {
@@ -56,11 +57,15 @@ void TerniSimulation::report_to_debugger(double delta) {
     state["running"] = is_running();
     state["starting"] = is_starting();
     state["error"] = last_error_;
+    state["device_lost"] = is_device_lost();
     if (is_running()) {
         state["device"] = world_->get_device_name();
         state["ticks"] = world_->get_ticks();
         state["gpu_ms"] = world_->get_last_tick_gpu_ms();
         state["slow"] = bool(world_->get_health()["slow"]);
+        state["stages"] = world_->get_stage_times();
+        // Hashed on the device: the tick in flight would have to be waited for.
+        if (!world_->is_tick_in_flight()) state["hashes"] = world_->get_entity_hashes();
         Array entities;
         const PackedStringArray names = world_->get_entities();
         for (int64_t i = 0; i < names.size(); ++i) {
@@ -102,13 +107,14 @@ bool TerniSimulation::start_world() {
     stop_world();
     last_error_ = "";
     world_.instantiate();
+    world_->connect("device_lost", callable_mp(this, &TerniSimulation::on_device_lost));
     Dictionary options;
     if (device_ >= 0) options["device"] = device_;
     options["ignore_renderer"] = !match_renderer_;
     options["preference"] = preference_;
     options["cache_folder"] = cache_folder_;
     options["cache_only"] = !compile_rules_;
-    bool ok = world_->load(game_folder_);
+    bool ok = world_->load(game_folder_, mod_folders_);
     if (ok) ok = start_in_background_ ? world_->begin_start(options) : world_->start(options);
     if (!ok) {
         fail_start();
@@ -119,9 +125,55 @@ bool TerniSimulation::start_world() {
 }
 
 void TerniSimulation::stop_world() {
+    remove_monitors();
     if (world_.is_null()) return;
     world_->stop();
     world_.unref();
+}
+
+// Godot's Monitors tab (in the Debugger panel) shows the GPU time of the tick and of each stage.
+void TerniSimulation::add_monitors() {
+    remove_monitors();
+    Performance* performance = Performance::get_singleton();
+    if (!performance || !is_running()) return;
+    const String category = "Terni " + String(get_name()) + "/";
+    const String tick = category + String("tick (GPU ms)");
+    if (performance->has_custom_monitor(tick)) return;  // another simulation of the same name has them
+    performance->add_custom_monitor(tick, callable_mp(this, &TerniSimulation::monitor_tick));
+    monitors_.push_back(tick);
+    const Array stages = world_->get_stage_times();
+    for (int64_t i = 0; i < stages.size(); ++i) {
+        const String stage = Dictionary(stages[i])["name"];
+        const String id = category + stage + String(" (GPU ms)");
+        if (performance->has_custom_monitor(id)) continue;
+        performance->add_custom_monitor(id, callable_mp(this, &TerniSimulation::monitor_stage).bind(stage));
+        monitors_.push_back(id);
+    }
+}
+
+void TerniSimulation::remove_monitors() {
+    Performance* performance = Performance::get_singleton();
+    for (int64_t i = 0; i < monitors_.size(); ++i)
+        if (performance && performance->has_custom_monitor(monitors_[i])) performance->remove_custom_monitor(monitors_[i]);
+    monitors_.clear();
+}
+
+double TerniSimulation::monitor_tick() const { return is_running() ? world_->get_last_tick_gpu_ms() : 0.0; }
+
+double TerniSimulation::monitor_stage(const String& stage) const {
+    if (!is_running()) return 0.0;
+    const Array stages = world_->get_stage_times();
+    for (int64_t i = 0; i < stages.size(); ++i) {
+        const Dictionary t = stages[i];
+        if (String(t["name"]) == stage) return double(t["last_ms"]);
+    }
+    return 0.0;
+}
+
+void TerniSimulation::on_device_lost(const String& error) {
+    last_error_ = error;
+    remove_monitors();
+    emit_signal("device_lost", error);
 }
 
 bool TerniSimulation::step() {
@@ -133,6 +185,7 @@ bool TerniSimulation::step() {
 
 void TerniSimulation::on_started() {
     due_ = 0;
+    add_monitors();
     emit_signal("started");
 }
 
@@ -144,6 +197,7 @@ void TerniSimulation::fail_start() {
 }
 
 bool TerniSimulation::fail() {
+    if (is_device_lost()) return false;  // device_lost was emitted instead
     const String error = world_.is_valid() ? world_->get_last_error() : String();
     last_error_ = error;
     paused_ = true;
@@ -210,6 +264,7 @@ void TerniSimulation::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_starting"), &TerniSimulation::is_starting);
     ClassDB::bind_method(D_METHOD("get_ticks"), &TerniSimulation::get_ticks);
     ClassDB::bind_method(D_METHOD("get_last_error"), &TerniSimulation::get_last_error);
+    ClassDB::bind_method(D_METHOD("is_device_lost"), &TerniSimulation::is_device_lost);
 
 // A property with its setter and getter; `info` is its PropertyInfo.
 #define TERNI_PROPERTY(name, info)                                                           \
@@ -217,6 +272,8 @@ void TerniSimulation::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_" #name), &TerniSimulation::get_##name);             \
     ADD_PROPERTY(info, "set_" #name, "get_" #name)
     TERNI_PROPERTY(game_folder, PropertyInfo(Variant::STRING, "game_folder", PROPERTY_HINT_DIR));
+    TERNI_PROPERTY(mod_folders, PropertyInfo(Variant::PACKED_STRING_ARRAY, "mod_folders", PROPERTY_HINT_TYPE_STRING,
+                                             String::num_int64(Variant::STRING) + "/" + String::num_int64(PROPERTY_HINT_DIR) + ":"));
     TERNI_PROPERTY(cache_folder, PropertyInfo(Variant::STRING, "cache_folder", PROPERTY_HINT_DIR));
     TERNI_PROPERTY(auto_start, PropertyInfo(Variant::BOOL, "auto_start"));
     TERNI_PROPERTY(ticks_per_second, PropertyInfo(Variant::FLOAT, "ticks_per_second", PROPERTY_HINT_RANGE, "0,1000,0.1"));
@@ -232,6 +289,7 @@ void TerniSimulation::_bind_methods() {
     ADD_SIGNAL(MethodInfo("started"));
     ADD_SIGNAL(MethodInfo("tick_completed"));
     ADD_SIGNAL(MethodInfo("failed", PropertyInfo(Variant::STRING, "error")));
+    ADD_SIGNAL(MethodInfo("device_lost", PropertyInfo(Variant::STRING, "error")));
 }
 
 }  // namespace godot

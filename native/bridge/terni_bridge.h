@@ -18,6 +18,10 @@ struct Device {
     int index = 0;
     std::string name, type, why_not;
     bool cpu = false, usable = false;
+    // What a rule that reads or writes past the end of a field does on this device
+    // (terni::BufferRobustness): 0 undefined, 1 stays inside the buffer in a way the driver
+    // chooses, 2 reads 0 and writes nothing, the same on every device.
+    int robustness = 0;
 };
 
 struct StartOptions {
@@ -43,6 +47,21 @@ struct Health {
     bool slow = false;
 };
 
+// A hash of one field, or of one entity type's fields (World::field_hashes()).
+struct Hash {
+    std::string name;
+    uint64_t hash = 0;
+};
+
+// GPU time of one stage (World::stage_times()).
+struct StageTime {
+    std::string name;
+    bool ran = false;     // in the last tick
+    double last_ms = 0;   // in the last tick
+    uint64_t runs = 0;    // ticks it ran in, since the start or the last move_to_device()
+    double total_ms = 0;  // over those ticks
+};
+
 struct FieldInfo {
     int type = 0;  // terni::FieldType
     int size = 0;  // values per row
@@ -51,6 +70,8 @@ struct FieldInfo {
 
 std::vector<Device> devices(std::string& error);
 bool can_compile_rules();
+// The checksum of the game a save was made with. False if the data is not an intact save.
+bool save_checksum(const uint8_t* data, size_t size, uint64_t& checksum, std::string& error);
 
 // ---- the renderer's GPU ----
 // What the host's renderer says about its GPU.
@@ -85,6 +106,8 @@ public:
     const std::string& error() const { return error_; }
 
     bool load(const std::string& folder, std::vector<std::string>& errors, std::vector<std::string>& warnings);
+    // The game's folder with mod folders on top, in order: the game's first.
+    bool load(const std::vector<std::string>& folders, std::vector<std::string>& errors, std::vector<std::string>& warnings);
     bool set_capacity(int entity, int rows);
     bool start(const StartOptions& options);
     void stop();
@@ -128,6 +151,10 @@ public:
     int generation(int entity, int row) const;
     int count(int entity) const;
     int alive_count(int entity) const;
+    // Of a dynamic entity type: one bit per row (row r is bit r % 32 of word r / 32). Valid
+    // until the next call that creates, destroys, ticks or loads. Null: failed.
+    const uint32_t* alive_bits(int entity, int& words) const;
+    int free_count(int entity);  // rows create_entity() would find now; -1: failed
 
     Modifier add_modifier(int bundle, int entity, int row, int32_t scale, int duration);
     bool set_modifier_scale(Modifier m, int32_t scale);
@@ -138,12 +165,28 @@ public:
 
     bool save(std::vector<uint8_t>& data);
     bool load_save(const uint8_t* data, size_t size);
+    // by_name: a save of another version of the game (or other mods) is fitted to this one
+    // by name; `fitted` gets one line per thing fitted.
+    bool load_save(const uint8_t* data, size_t size, bool by_name, std::vector<std::string>& fitted);
     uint64_t state_hash();
+    // Computed on the device: one hash per field, or per entity type. Cheap enough to
+    // compare every few ticks. Collect a tick in flight first.
+    bool field_hashes(std::vector<Hash>& hashes);
+    bool entity_hashes(std::vector<Hash>& hashes);
+    std::vector<StageTime> stage_times() const;
 
     std::string device_name() const;
     Health health() const;
     bool move_to_device(int device);
     std::string report() const;
+
+    // The device was lost (a rule ran too long and the driver reset the GPU, or the GPU
+    // went away). The call that found it failed with the reason, and the world stopped;
+    // start() again, on this device or another, and load the last save.
+    bool device_lost() const;
+    // Makes the next call that uses the device find it lost, for testing how a game
+    // recovers. Does nothing if the world is not running.
+    void simulate_device_lost();
 
 private:
     struct Impl;

@@ -49,6 +49,19 @@ API_ENUM() enum class TerniDevicePreference
 };
 
 /// <summary>
+/// What a rule that reads or writes past the end of a field does on a device.
+/// </summary>
+API_ENUM() enum class TerniBufferRobustness
+{
+    /// <summary>Undefined: the device may crash or corrupt other memory.</summary>
+    None,
+    /// <summary>The access stays inside the field's buffer, in a way each driver chooses.</summary>
+    Bounded,
+    /// <summary>Reads give 0 and writes are dropped, the same on every device (every current desktop driver).</summary>
+    Defined,
+};
+
+/// <summary>
 /// A Vulkan device the simulation can run on.
 /// </summary>
 API_STRUCT() struct TERNI_API TerniDevice
@@ -66,6 +79,38 @@ API_STRUCT() struct TERNI_API TerniDevice
     API_FIELD() bool Usable = false;
     /// <summary>If not usable: what is missing.</summary>
     API_FIELD() String WhyNot;
+    /// <summary>What a rule that reads or writes past the end of a field does here.</summary>
+    API_FIELD() TerniBufferRobustness Robustness = TerniBufferRobustness::None;
+};
+
+/// <summary>
+/// A hash of one field ("planet.pop") or of one entity type's fields ("planet"), computed on the device.
+/// </summary>
+API_STRUCT() struct TERNI_API TerniHash
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(TerniHash);
+
+    API_FIELD() String Name;
+    API_FIELD() uint64 Hash = 0;
+};
+
+/// <summary>
+/// GPU time of one stage: in the last tick and since the start.
+/// </summary>
+API_STRUCT() struct TERNI_API TerniStageTime
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(TerniStageTime);
+
+    /// <summary>The stage's name; Terni's own stages, which run after the game's, start with terni_.</summary>
+    API_FIELD() String Name;
+    /// <summary>It ran in the last tick (a stage with a schedule skips some).</summary>
+    API_FIELD() bool Ran = false;
+    /// <summary>GPU time in the last tick, in milliseconds; 0 if it did not run.</summary>
+    API_FIELD() double LastMs = 0;
+    /// <summary>Ticks it ran in, since the start or the last MoveToDevice().</summary>
+    API_FIELD() uint64 Runs = 0;
+    /// <summary>GPU time over those ticks, in milliseconds.</summary>
+    API_FIELD() double TotalMs = 0;
 };
 
 /// <summary>
@@ -210,6 +255,16 @@ public:
     /// <param name="output">What the program printed: errors and warnings as file:line: message.</param>
     /// <returns>True if every rule is in the cache now.</returns>
     API_FUNCTION() static bool CompileRules(const StringView& gameFolder, const StringView& cacheFolder, API_PARAM(Out) String& output);
+    /// <summary>
+    /// The same for a game folder with mod folders on top (see LoadWithMods()).
+    /// </summary>
+    API_FUNCTION() static bool CompileRulesWithMods(const StringView& gameFolder, const Array<String>& mods, const StringView& cacheFolder, API_PARAM(Out) String& output);
+
+    /// <summary>
+    /// The checksum of the game a save was made with, to tell before loading it whether it
+    /// matches Checksum. 0 if the data is not an intact save.
+    /// </summary>
+    API_FUNCTION() static uint64 GetSaveChecksum(const Span<byte>& data);
 
     // ---- loading and running ----
 
@@ -218,6 +273,12 @@ public:
     /// are listed in Errors (and Warnings), each as file:line: message.
     /// </summary>
     API_FUNCTION() bool Load(const StringView& gameFolder);
+    /// <summary>
+    /// Reads a game folder with mod folders on top, in order: in each subfolder a file in a
+    /// mod replaces the game's file of the same name, and a new file adds to the game.
+    /// Messages name the folder a file came from. Mods change Checksum.
+    /// </summary>
+    API_FUNCTION() bool LoadWithMods(const StringView& gameFolder, const Array<String>& mods);
 
     /// <summary>
     /// Room for this many rows of an entity type, e.g. for the map size a match picks.
@@ -252,6 +313,8 @@ public:
     API_PROPERTY() bool IsRunning() const;
     /// <summary>The game folder given to Load().</summary>
     API_PROPERTY() const String& GetGameFolder() const { return _folder; }
+    /// <summary>The mod folders given to LoadWithMods().</summary>
+    API_PROPERTY() const Array<String>& GetModFolders() const { return _mods; }
     /// <summary>Why the last call that failed did.</summary>
     API_PROPERTY() const String& GetLastError() const { return _lastError; }
     /// <summary>Errors in the game data found by Load(): file:line: message.</summary>
@@ -344,6 +407,16 @@ public:
     /// <summary>Rows in use: one past the highest row ever alive.</summary>
     API_FUNCTION() int32 GetCount(int32 entity) const;
     API_FUNCTION() int32 GetAliveCount(int32 entity) const;
+    /// <summary>
+    /// Every row's alive bit, in one call: row r is alive if bit r % 32 of word r / 32 is set.
+    /// Of a dynamic entity type. Never waits for the device.
+    /// </summary>
+    API_FUNCTION() Array<uint32> GetAliveBits(int32 entity) const;
+    /// <summary>
+    /// How many rows CreateEntity() would find now (rows destroyed in the last tick rest for
+    /// one), so a command can be refused before it is applied. -1 if the call failed.
+    /// </summary>
+    API_FUNCTION() int32 GetFreeCount(int32 entity);
 
     // ---- modifiers ----
 
@@ -364,13 +437,28 @@ public:
 
     /// <summary>The complete state. Loads on any device and continues bit for bit.</summary>
     API_FUNCTION() Array<byte> Save();
-    /// <summary>Restores a save made by the same game (same Checksum). On failure nothing changes.</summary>
-    API_FUNCTION() bool LoadSave(const Span<byte>& data);
+    /// <summary>
+    /// Restores a save. On failure nothing changes. A save of the same game (same Checksum)
+    /// loads as it is; with byName, a save of another version of the game, or with other
+    /// mods, is fitted to this one by name (FittedLines says what was fitted).
+    /// </summary>
+    API_FUNCTION() bool LoadSave(const Span<byte>& data, bool byName = false);
+    /// <summary>What the last LoadSave() fitted, one line each.</summary>
+    API_PROPERTY() const Array<String>& GetFittedLines() const { return _fitted; }
     /// <summary>
     /// A hash of the whole state, read back from the device (slow). Equal on every device
     /// that ran the same ticks: compare it between multiplayer peers to find a desync.
     /// </summary>
     API_FUNCTION() uint64 GetStateHash();
+    /// <summary>
+    /// One hash per field, computed on the device: only two words per field come back, so
+    /// lockstep peers can compare them every few ticks. Waits for a tick in flight.
+    /// </summary>
+    API_FUNCTION() Array<TerniHash> GetFieldHashes();
+    /// <summary>The same per entity type ("terni": the tick and the counts).</summary>
+    API_FUNCTION() Array<TerniHash> GetEntityHashes();
+    /// <summary>GPU time of each stage, in the order they run. Never waits.</summary>
+    API_FUNCTION() Array<TerniStageTime> GetStageTimes() const;
 
     // ---- the device ----
 
@@ -381,14 +469,28 @@ public:
     /// <summary>A text report: device, stages and their times.</summary>
     API_FUNCTION() String GetReport() const;
 
+    /// <summary>
+    /// The device was lost: a rule ran too long and the driver reset the GPU, or the GPU went
+    /// away. The world has stopped and LastError says what failed. Start() it again, on this
+    /// device or another, and load the last save.
+    /// </summary>
+    API_EVENT() Delegate<TerniWorld*> DeviceLost;
+    /// <summary>The device was lost (see DeviceLost), and the world has not started again since.</summary>
+    API_PROPERTY() bool GetIsDeviceLost() const;
+    /// <summary>Makes the next call that uses the device find it lost, to test how the game recovers.</summary>
+    API_FUNCTION() void SimulateDeviceLost();
+
 private:
     struct StartJob;
     terni_bridge::World* _bridge;
     mutable StartJob* _start = nullptr;
     String _folder;
+    Array<String> _mods;
     mutable String _lastError;
     Array<String> _errors;
     Array<String> _warnings;
+    Array<String> _fitted;
+    mutable bool _lostReported = false;
 
     bool Fail(const String& what) const;
     // The bridge, once a start in flight has finished (waits for it).
@@ -399,7 +501,8 @@ private:
     // themselves may outlive the reload (a script can still reference one).
     static void UnloadAll();
     friend struct TerniHooks;
-    // Passes a result of the bridge on; if the call failed, records and logs why.
+    // Passes a result of the bridge on; if the call failed, records and logs why, and fires
+    // DeviceLost when the device was lost.
     template<typename T>
     T Checked(T&& value) const
     {

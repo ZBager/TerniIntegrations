@@ -13,8 +13,9 @@ using Terni;
 namespace TerniEditor
 {
     /// <summary>
-    /// The Terni window: the devices of this machine, the worlds that are running, and the
-    /// values of one field of one of them, refreshed twice a second.
+    /// The Terni window: the devices of this machine, the worlds that are running (with the
+    /// GPU time of each stage and a state hash per entity type, computed on the device), and
+    /// the values of one field of one of them, refreshed twice a second.
     /// </summary>
     public class TerniWindow : CustomEditorWindow
     {
@@ -24,6 +25,8 @@ namespace TerniEditor
         private ComboBoxElement _world, _entity, _field;
         private TerniWorld[] _list = Array.Empty<TerniWorld>();
         private float _nextRefresh;
+        // The last entity hashes of each world: not read while a tick is in flight.
+        private readonly System.Collections.Generic.Dictionary<TerniWorld, TerniHash[]> _hashes = new();
         private bool _bound;
 
         /// <inheritdoc />
@@ -86,7 +89,9 @@ namespace TerniEditor
             var renderer = TerniWorld.FindRendererDevice();
             foreach (var device in TerniWorld.GetDevices())
                 text.AppendLine($"{device.Index}: {device.Name} ({device.Type})" + (device.Index == renderer ? ", the engine renders with it" : "") +
-                                (device.Usable ? "" : " - not usable: " + device.WhyNot));
+                                (!device.Usable ? " - not usable: " + device.WhyNot :
+                                 device.Robustness == TerniBufferRobustness.Bounded ? ", reads and writes past a field's end are up to the driver" :
+                                 device.Robustness == TerniBufferRobustness.None ? ", reads and writes past a field's end are undefined" : ""));
             return text.Length == 0 ? "No Vulkan device found." : text.ToString().TrimEnd();
         }
 
@@ -104,19 +109,31 @@ namespace TerniEditor
             }
 
             var text = new StringBuilder();
+            foreach (var key in _hashes.Keys.Where(w => !list.Contains(w)).ToArray())
+                _hashes.Remove(key);
             foreach (var world in list)
             {
-                text.AppendLine(world.GameFolder);
+                text.AppendLine(world.GameFolder + (world.ModFolders.Length > 0 ? " + " + string.Join(" + ", world.ModFolders.Select(System.IO.Path.GetFileName)) : ""));
                 if (!world.IsRunning)
                 {
-                    text.AppendLine("    loaded, not running");
+                    text.AppendLine(world.IsDeviceLost ? "    the device was lost: " + world.LastError : "    loaded, not running");
                     continue;
                 }
                 var health = world.Health;
-                text.AppendLine($"    {world.DeviceName}, tick {world.Ticks}, {world.LastTickGpuMs:0.00} ms on the device per tick" + (health.Slow ? " (the device is busy)" : ""));
+                text.AppendLine($"    {world.DeviceName}, tick {world.Ticks}, {world.LastTickGpuMs:0.000} ms on the device per tick" + (health.Slow ? " (the device is busy)" : ""));
+                // Hashed on the device: never while a tick is in flight (it would be waited for).
+                if (!world.TickInFlight)
+                    _hashes[world] = world.GetEntityHashes();
+                _hashes.TryGetValue(world, out var hashes);
                 var entities = world.GetEntities();
                 for (var i = 0; i < entities.Length; i++)
-                    text.AppendLine($"    {entities[i]}: {world.GetCount(i)} of {world.GetCapacity(i)}" + (world.IsDynamic(i) ? $", {world.GetAliveCount(i)} alive" : ""));
+                {
+                    var hash = hashes?.FirstOrDefault(h => h.Name == entities[i]);
+                    text.AppendLine($"    {entities[i]}: {world.GetCount(i)} of {world.GetCapacity(i)}" + (world.IsDynamic(i) ? $", {world.GetAliveCount(i)} alive" : "") +
+                                    (hash?.Name != null ? $", state {hash.Value.Hash:x16}" : ""));
+                }
+                foreach (var stage in world.GetStageTimes())
+                    text.AppendLine($"    stage {stage.Name}: {stage.LastMs:0.000} ms, {stage.AverageMs:0.000} ms on average" + (stage.Ran ? "" : " (did not run in the last tick)"));
             }
             _worlds.Label.Text = text.Length == 0 ? "No world is loaded. Start play mode with a TerniSimulation script in the scene." : text.ToString().TrimEnd();
 

@@ -64,15 +64,17 @@ public class Towns : Script
 }
 ```
 
-- **`TerniSimulation`** (script): game folder, ticks per second, pause, `Step()`,
-  device choice; events `Started`, `TickCompleted`, `Failed`. It starts the world in
+- **`TerniSimulation`** (script): game folder, mod folders, ticks per second, pause,
+  `Step()`, device choice; events `Started`, `TickCompleted`, `Failed`, `DeviceLost`. It starts the world in
   the background (compiling changed rules, making the device ready, uploading the
   starting state) while frames go on; `Started` follows a few frames later.
-- **`TerniWorld`** (object, also for C++ and Visual Scripting): `Load`, `Start`,
-  `Tick` / `BeginTick` / `TickReady` / `EndTick`, `ReadField`, `WriteField`,
-  `WriteValue`, `Subscribe`, `CreateEntity` / `DestroyEntity`, `AddModifier` and
-  the other modifier calls, `Save` / `LoadSave`, `Checksum`, `GetStateHash`,
-  `GetDevices`, `MoveToDevice`. Functions that return `bool` return true when they
+- **`TerniWorld`** (object, also for C++ and Visual Scripting): `Load` /
+  `LoadWithMods`, `Start`, `Tick` / `BeginTick` / `TickReady` / `EndTick`, `ReadField`,
+  `WriteField`, `WriteValue`, `Subscribe`, `CreateEntity` / `DestroyEntity`,
+  `GetAliveBits`, `GetFreeCount`, `AddModifier` and the other modifier calls, `Save` /
+  `LoadSave`, `Checksum`, `GetStateHash`, `GetFieldHashes` / `GetEntityHashes`,
+  `GetStageTimes`, `GetDevices` (each with its `Robustness`: what a rule that reads or
+  writes past the end of a field does there), `MoveToDevice`; event `DeviceLost`. Functions that return `bool` return true when they
   worked; after false, `LastError` says why, and the log has it too. `BeginStart`,
   `StartReady` and `EndStart` start a world without holding up the frame; any other
   call made during a start waits for it.
@@ -80,8 +82,10 @@ public class Towns : Script
 - **Script reloads** in the editor free every world (device and game data) before the
   plugin's code is replaced. A script that still holds a `TerniWorld` afterwards finds
   it not loaded; load it again.
-- **Tools > Terni** (editor): the devices of the machine, the running worlds, and the
-  values of any field, live.
+- **Tools > Terni** (editor): the devices of the machine, the running worlds with a
+  state hash per entity type and the GPU time of each stage, and the values of any
+  field, live. Flax's profiler times only work on its own GPU device, so Terni's stage
+  times are shown here and not there.
 
 Values are raw integers: a quantity of 1 is 256, a rate of 1 is 65536. Keep them raw
 in game logic and in anything sent to other players.
@@ -105,9 +109,10 @@ TerniStartOptions()` in C# means the same: `UseDevice` with `Device` names a dev
 
 Visual scripts can use `TerniWorld` and `TerniSimulation` like C# scripts can (tried
 with a graph that logs the simulation's `Ticks` from **On Update**), with one
-difference: they cannot bind the C# events `Started`, `TickCompleted` and `Failed`.
-Instead, in **On Update**, compare the simulation's `Ticks` with the value from the last
-frame to act on new ticks, and check `IsRunning` and `LastError`. Use
+difference: they cannot bind the C# events `Started`, `TickCompleted`, `Failed` and
+`DeviceLost`. Instead, in **On Update**, compare the simulation's `Ticks` with the value
+from the last frame to act on new ticks, and check `IsRunning`, `IsDeviceLost` and
+`LastError`. Use
 `GetSubscribed` (an array copy) where C# would use `Subscribed` (a span).
 
 ### Rules and the SPIR-V cache
@@ -117,11 +122,58 @@ beside its binaries, into the folder `spirv` inside the game folder. A world sta
 from that folder; only when a rule is new or has changed does the editor run the
 compiler. `TerniWorld.CompileRules` does the same from your own build step.
 
+### Mods
+
+A mod is a folder laid out like the game's, holding only what it changes; Terni's
+[Data format](https://github.com/ZBager/Terni/blob/main/docs/data-format.md#mods) says
+how files combine. Give the script's **Mod Folders**, or call
+`world.LoadWithMods(gameFolder, new[] { "Mods/FasterGrowth" })`, in order. Mods change
+the game checksum, so multiplayer peers with different mods can tell before they play.
+Their rules are compiled into the game folder's cache the first time, in cooked games
+too. Point modders to Terni's `terni_check`, which loads, compiles and runs a mod the
+way the game will. Give each mod folder a `descriptor.mod` file: cooking then knows it
+is not a game folder and leaves it out; players put mods beside the game.
+
+### Saves from an earlier version of the game
+
+A patched game, or one with other mods, has another checksum, and `LoadSave(data)`
+refuses saves made before. `LoadSave(data, true)` loads them by name: the save is fitted
+to this game (new fields and entity types start as the game describes them, removed ones
+are dropped) and `FittedLines` says what was fitted. `TerniWorld.GetSaveChecksum(data)`
+tells beforehand which game a save was made with.
+
+### A lost device
+
+A rule that runs too long (an endless loop in a mod, say) makes the driver reset the
+GPU, and the simulation's state on it is gone. The world stops and fires `DeviceLost`;
+the script fires its own `DeviceLost`, and not `Failed`. Start again, on the same device
+or another, and load the last save:
+
+```cs
+_simulation.DeviceLost += (simulation, error) =>
+{
+    Debug.LogWarning("The simulation restarts from the autosave: " + error);
+    simulation.StartWorld();
+    simulation.World.LoadSave(_autosave);
+};
+```
+
+`SimulateDeviceLost()` makes the next call that uses the device find it lost, to test
+this without resetting a GPU.
+
+### Desync checks
+
+`GetFieldHashes()` and `GetEntityHashes()` hash the state on the device and bring back
+two words per field: cheap enough for lockstep peers to compare every few ticks, and
+equal on every device that ran the same ticks. `GetStateHash()` reads the whole state
+back and is much slower.
+
 ### Cooked games
 
 Cooking needs no setup. Every game folder of the project (a folder with a `schema` and
 a `rules` folder in it, outside `Content`, `Source` and `Plugins`) has its rules
-compiled and is copied to the same place in the cooked game, with its `spirv` folder.
+compiled and is copied to the same place in the cooked game, with its `spirv` folder
+(mod folders, with a `descriptor.mod`, are left out).
 The path a `TerniSimulation` script has works there unchanged. The cook log names each
 folder, and reports an error for one whose rules do not compile.
 
@@ -153,11 +205,12 @@ FLAX_EDITOR=/path/to/FlaxEditor ./test.sh
 
 It runs the galaxy for 200 ticks on every Vulkan device of the machine, with blocking
 and background ticks and through a save, and compares the state hash with the one
-Terni's own tools give. On Windows, run `test.bat`. The test makes wrong calls on
+Terni's own tools give. It also checks hashes on the device, stage times, a simulated
+lost device, and the galaxy with the example mod (`Mods/FasterGrowth`) on top. On Windows, run `test.bat`. The test makes wrong calls on
 purpose, so the editor's log ends with a few `[Terni]` errors even when it passes.
 
 - `./test.sh --cooked` cooks the example for Linux first, changes a rule in the cooked
-  game as a mod would, and runs the same test there. The editor needs Flax's Linux
+  game as a mod would, puts the example mod beside it, and runs the same test there. The editor needs Flax's Linux
   platform files for that (they come separately from the editor download).
 - `./test.sh --visual` (Windows: `test.bat visual`) applies the editor's own rules for
   what visual scripts can use to every member of the plugin's types, and checks that a

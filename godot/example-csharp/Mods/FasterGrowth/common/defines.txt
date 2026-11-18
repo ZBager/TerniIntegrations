@@ -1,0 +1,6 @@
+# A mod for the galaxy example: faster growth. Replaces the game's file, so it repeats
+# the values it keeps.
+growth_rate   = 0.03
+tax_rate      = 0.1
+unrest_chance = 0.05
+unrest_loss   = 0.03

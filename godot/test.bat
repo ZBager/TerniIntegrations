@@ -35,6 +35,8 @@ goto result
 if "%GODOT_MONO%"=="" (echo Set GODOT_MONO to the Godot .NET program & exit /b 2)
 cd example-csharp
 if not exist .godot "%GODOT_MONO%" --headless --path . --import > nul 2>&1
+rem So that a failed build is not hidden by an old one.
+if exist .godot\mono\temp\bin\Debug\TerniExampleCs.dll del .godot\mono\temp\bin\Debug\TerniExampleCs.dll
 "%GODOT_MONO%" --headless --path . --build-solutions --quit > "%TEMP%\terni_csharp_build.txt" 2>&1
 if not exist .godot\mono\temp\bin\Debug\TerniExampleCs.dll (
     type "%TEMP%\terni_csharp_build.txt"

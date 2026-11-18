@@ -10,7 +10,7 @@ func _ready() -> void:
 	if result.is_empty():
 		return
 	($Simulation as TerniSimulation).paused = true
-	var passed := SelfTest.run("res://Galaxy", result)
+	var passed := SelfTest.run("res://Galaxy", result, self)
 	# Quit a little later: let the first frames finish.
 	await get_tree().create_timer(0.5).timeout
 	get_tree().quit(0 if passed else 1)

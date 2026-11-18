@@ -29,6 +29,8 @@ class TerniWorld : public RefCounted {
 public:
     enum FieldType { FIELD_QUANTITY, FIELD_RATE, FIELD_AGG, FIELD_INT, FIELD_COUNT, FIELD_REF, FIELD_MONEY64 };
     enum DevicePreference { PREFER_DISCRETE, PREFER_INTEGRATED, PREFER_CPU };
+    // What a rule that reads or writes past the end of a field does on a device.
+    enum BufferRobustness { ROBUSTNESS_NONE, ROBUSTNESS_BOUNDED, ROBUSTNESS_DEFINED };
     static constexpr int64_t QUANTITY_ONE = 1 << 8;
     static constexpr int64_t RATE_ONE = 1 << 16;
 
@@ -40,13 +42,14 @@ public:
     static int64_t find_renderer_device();
     static void stop_all();
     static void unload_all();
-    static Dictionary compile_rules(const String& game_folder, const String& cache_folder);
+    static Dictionary compile_rules(const String& game_folder, const String& cache_folder, const PackedStringArray& mods);
+    static int64_t save_checksum(const PackedByteArray& data);
     static double to_float(int64_t raw, int64_t type);
     static int64_t from_float(double value, int64_t type);
     static int64_t to_int64(int64_t low, int64_t high);
 
     // loading and running
-    bool load(const String& game_folder);
+    bool load(const String& game_folder, const PackedStringArray& mods);
     bool set_capacity(int64_t entity, int64_t rows);
     bool start(const Dictionary& options);
     bool begin_start(const Dictionary& options);
@@ -57,6 +60,7 @@ public:
     bool is_loaded() const;
     bool is_running() const;
     String get_game_folder() const { return folder_; }
+    PackedStringArray get_mod_folders() const { return mods_; }
     String get_last_error() const { return last_error_; }
     PackedStringArray get_errors() const { return errors_; }
     PackedStringArray get_warnings() const { return warnings_; }
@@ -105,6 +109,8 @@ public:
     int64_t get_generation(int64_t entity, int64_t row) const;
     int64_t get_count(int64_t entity) const;
     int64_t get_alive_count(int64_t entity) const;
+    PackedInt32Array get_alive_bits(int64_t entity) const;
+    int64_t get_free_count(int64_t entity);
 
     // modifiers: a handle is Vector2i(slot, version)
     Vector2i add_modifier(int64_t bundle, int64_t entity, int64_t row, int64_t scale, int64_t duration);
@@ -116,14 +122,20 @@ public:
 
     // saves and state
     PackedByteArray save();
-    bool load_save(const PackedByteArray& data);
+    bool load_save(const PackedByteArray& data, bool by_name);
+    PackedStringArray get_fitted_lines() const { return fitted_; }
     int64_t get_state_hash();
+    Dictionary get_field_hashes();
+    Dictionary get_entity_hashes();
+    Array get_stage_times() const;
 
     // the device
     String get_device_name() const;
     Dictionary get_health() const;
     bool move_to_device(int64_t device);
     String get_report() const;
+    bool is_device_lost() const;
+    void simulate_device_lost();
 
 protected:
     static void _bind_methods();
@@ -133,12 +145,15 @@ private:
     terni_bridge::World* bridge_;
     mutable StartJob* start_ = nullptr;
     String folder_;
+    PackedStringArray mods_;
     mutable String last_error_;
-    PackedStringArray errors_, warnings_;
+    PackedStringArray errors_, warnings_, fitted_;
+    mutable bool lost_signalled_ = false;
 
     terni_bridge::World* bridge() const;  // waits for a start in flight
     bool fail(const String& what) const;
-    void report() const;                  // records the bridge's error, if the last call failed
+    void report() const;                  // records the bridge's error, if the last call failed,
+                                          // and signals a lost device
     StartJob* prepare_start(const Dictionary& options);
     bool finish_start() const;
 };
@@ -147,3 +162,4 @@ private:
 
 VARIANT_ENUM_CAST(TerniWorld::FieldType);
 VARIANT_ENUM_CAST(TerniWorld::DevicePreference);
+VARIANT_ENUM_CAST(TerniWorld::BufferRobustness);

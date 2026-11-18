@@ -144,6 +144,7 @@ struct TerniWorld::StartJob {
     terni_bridge::RendererGpu gpu;
     int renderer = -1;
     String folder, cache;
+    PackedStringArray mods;
     String failure;  // empty: started
     std::atomic<bool> done{false};
     std::thread thread;
@@ -169,7 +170,7 @@ struct TerniWorld::StartJob {
             }
             const String from_cache = to_godot(bridge->error());
             if (!compiler_path().is_empty()) {
-                const Dictionary result = TerniWorld::compile_rules(folder, cache);
+                const Dictionary result = TerniWorld::compile_rules(folder, cache, mods);
                 if (!bool(result["ok"])) {
                     failure = "the rules did not compile:\n" + String(result["output"]) +
                               "\n(starting from the cache had failed: " + from_cache + ")";
@@ -205,6 +206,10 @@ bool TerniWorld::fail(const String& what) const {
 
 void TerniWorld::report() const {
     if (!bridge_->error().empty()) fail(to_godot(bridge_->error()));
+    if (bridge_->device_lost() && !lost_signalled_) {
+        lost_signalled_ = true;
+        const_cast<TerniWorld*>(this)->emit_signal("device_lost", last_error_);
+    }
 }
 
 // ---- devices and tools ----
@@ -220,6 +225,7 @@ Array TerniWorld::get_devices() {
         device["is_cpu"] = d.cpu;
         device["usable"] = d.usable;
         device["why_not"] = to_godot(d.why_not);
+        device["robustness"] = d.robustness;
         out.push_back(device);
     }
     if (!error.empty()) UtilityFunctions::push_error("[Terni] " + to_godot(error));
@@ -245,7 +251,7 @@ void TerniWorld::unload_all() {
     }
 }
 
-Dictionary TerniWorld::compile_rules(const String& game_folder, const String& cache_folder) {
+Dictionary TerniWorld::compile_rules(const String& game_folder, const String& cache_folder, const PackedStringArray& mods) {
     Dictionary result;
     const String compiler = compiler_path();
     if (compiler.is_empty()) {
@@ -255,6 +261,7 @@ Dictionary TerniWorld::compile_rules(const String& game_folder, const String& ca
     }
     PackedStringArray args;
     args.push_back(globalize(game_folder));
+    for (int64_t i = 0; i < mods.size(); ++i) args.push_back(globalize(mods[i]));
     args.push_back(globalize(cache_folder));
     Array output;
     const int64_t code = OS::get_singleton()->execute(compiler, args, output, true);
@@ -263,6 +270,14 @@ Dictionary TerniWorld::compile_rules(const String& game_folder, const String& ca
     result["ok"] = code == 0;
     result["output"] = text.strip_edges();
     return result;
+}
+
+int64_t TerniWorld::save_checksum(const PackedByteArray& data) {
+    uint64_t checksum = 0;
+    std::string error;
+    if (!terni_bridge::save_checksum(data.ptr(), static_cast<size_t>(data.size()), checksum, error))
+        UtilityFunctions::push_error("[Terni] " + to_godot(error));
+    return static_cast<int64_t>(checksum);
 }
 
 double TerniWorld::to_float(int64_t raw, int64_t type) {
@@ -289,16 +304,27 @@ int64_t TerniWorld::to_int64(int64_t low, int64_t high) {
 
 // ---- loading and running ----
 
-bool TerniWorld::load(const String& game_folder) {
+bool TerniWorld::load(const String& game_folder, const PackedStringArray& mods) {
     folder_ = globalize(game_folder);
+    mods_.clear();
+    for (int64_t i = 0; i < mods.size(); ++i) mods_.push_back(globalize(mods[i]));
     errors_.clear();
     warnings_.clear();
+    lost_signalled_ = false;
+    std::vector<std::string> folders{to_std(folder_)};
+    for (int64_t i = 0; i < mods_.size(); ++i) {
+        if (!DirAccess::dir_exists_absolute(mods_[i])) {
+            bridge()->stop();
+            return fail("there is no mod folder " + mods_[i]);
+        }
+        folders.push_back(to_std(mods_[i]));
+    }
     if (!DirAccess::dir_exists_absolute(folder_)) {
         bridge()->stop();
         return fail("there is no game folder " + folder_);
     }
     std::vector<std::string> errors, warnings;
-    const bool ok = bridge()->load(to_std(folder_), errors, warnings);
+    const bool ok = bridge()->load(folders, errors, warnings);
     errors_ = to_godot(errors);
     warnings_ = to_godot(warnings);
     for (int64_t i = 0; i < warnings_.size(); ++i) UtilityFunctions::push_warning("[Terni] " + warnings_[i]);
@@ -326,6 +352,7 @@ TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
     StartJob* job = new StartJob();
     job->bridge = bridge_;
     job->folder = folder_;
+    job->mods = mods_;
     const String cache = options.get("cache_folder", String());
     job->cache = cache.is_empty() ? folder_.path_join("spirv") : globalize(cache);
     const bool use_device = options.has("device") && int64_t(options["device"]) >= 0;
@@ -347,6 +374,7 @@ bool TerniWorld::finish_start() const {
     start_ = nullptr;
     if (job->thread.joinable()) job->thread.join();
     const bool ok = job->failure.is_empty();
+    if (ok) lost_signalled_ = false;
     if (ok)
         UtilityFunctions::print("[Terni] ", folder_, " runs on ", to_godot(bridge_->device_name()),
                                 job->renderer >= 0 ? ", the GPU the engine renders with" : "");
@@ -517,6 +545,17 @@ bool TerniWorld::is_alive(int64_t entity, int64_t row) const { return bridge()->
 int64_t TerniWorld::get_generation(int64_t entity, int64_t row) const { return bridge()->generation(to_int(entity), to_int(row)); }
 int64_t TerniWorld::get_count(int64_t entity) const { return bridge()->count(to_int(entity)); }
 int64_t TerniWorld::get_alive_count(int64_t entity) const { return bridge()->alive_count(to_int(entity)); }
+PackedInt32Array TerniWorld::get_alive_bits(int64_t entity) const {
+    int words = 0;
+    const uint32_t* bits = bridge()->alive_bits(to_int(entity), words);
+    report();
+    return to_packed(reinterpret_cast<const int32_t*>(bits), bits ? static_cast<size_t>(words) : 0);
+}
+int64_t TerniWorld::get_free_count(int64_t entity) {
+    const int count = bridge()->free_count(to_int(entity));
+    report();
+    return count;
+}
 
 // ---- modifiers ----
 
@@ -569,8 +608,11 @@ PackedByteArray TerniWorld::save() {
     return out;
 }
 
-bool TerniWorld::load_save(const PackedByteArray& data) {
-    const bool ok = bridge()->load_save(data.ptr(), static_cast<size_t>(data.size()));
+bool TerniWorld::load_save(const PackedByteArray& data, bool by_name) {
+    std::vector<std::string> fitted;
+    const bool ok = bridge()->load_save(data.ptr(), static_cast<size_t>(data.size()), by_name, fitted);
+    fitted_ = to_godot(fitted);
+    for (int64_t i = 0; i < fitted_.size(); ++i) UtilityFunctions::print("[Terni] save: ", fitted_[i]);
     report();
     return ok;
 }
@@ -579,6 +621,43 @@ int64_t TerniWorld::get_state_hash() {
     const uint64_t hash = bridge()->state_hash();
     report();
     return static_cast<int64_t>(hash);
+}
+
+namespace {
+Dictionary to_godot(const std::vector<terni_bridge::Hash>& hashes) {
+    Dictionary out;
+    for (const terni_bridge::Hash& h : hashes) out[to_godot(h.name)] = static_cast<int64_t>(h.hash);
+    return out;
+}
+}  // namespace
+
+Dictionary TerniWorld::get_field_hashes() {
+    std::vector<terni_bridge::Hash> hashes;
+    bridge()->field_hashes(hashes);
+    report();
+    return to_godot(hashes);
+}
+
+Dictionary TerniWorld::get_entity_hashes() {
+    std::vector<terni_bridge::Hash> hashes;
+    bridge()->entity_hashes(hashes);
+    report();
+    return to_godot(hashes);
+}
+
+Array TerniWorld::get_stage_times() const {
+    Array out;
+    for (const terni_bridge::StageTime& t : bridge()->stage_times()) {
+        Dictionary item;
+        item["name"] = to_godot(t.name);
+        item["ran"] = t.ran;
+        item["last_ms"] = t.last_ms;
+        item["runs"] = static_cast<int64_t>(t.runs);
+        item["total_ms"] = t.total_ms;
+        out.push_back(item);
+    }
+    report();
+    return out;
 }
 
 // ---- the device ----
@@ -603,6 +682,8 @@ bool TerniWorld::move_to_device(int64_t device) {
 }
 
 String TerniWorld::get_report() const { return to_godot(bridge()->report()); }
+bool TerniWorld::is_device_lost() const { return bridge()->device_lost(); }
+void TerniWorld::simulate_device_lost() { bridge()->simulate_device_lost(); }
 
 // ---- binding ----
 
@@ -610,12 +691,14 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_static_method("TerniWorld", D_METHOD("get_devices"), &TerniWorld::get_devices);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("find_renderer_device"), &TerniWorld::find_renderer_device);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("stop_all"), &TerniWorld::stop_all);
-    ClassDB::bind_static_method("TerniWorld", D_METHOD("compile_rules", "game_folder", "cache_folder"), &TerniWorld::compile_rules);
+    ClassDB::bind_static_method("TerniWorld", D_METHOD("compile_rules", "game_folder", "cache_folder", "mods"), &TerniWorld::compile_rules,
+                                DEFVAL(PackedStringArray()));
+    ClassDB::bind_static_method("TerniWorld", D_METHOD("save_checksum", "data"), &TerniWorld::save_checksum);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("to_float", "raw", "type"), &TerniWorld::to_float);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("from_float", "value", "type"), &TerniWorld::from_float);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("to_int64", "low", "high"), &TerniWorld::to_int64);
 
-    ClassDB::bind_method(D_METHOD("load", "game_folder"), &TerniWorld::load);
+    ClassDB::bind_method(D_METHOD("load", "game_folder", "mods"), &TerniWorld::load, DEFVAL(PackedStringArray()));
     ClassDB::bind_method(D_METHOD("set_capacity", "entity", "rows"), &TerniWorld::set_capacity);
     ClassDB::bind_method(D_METHOD("start", "options"), &TerniWorld::start, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("begin_start", "options"), &TerniWorld::begin_start, DEFVAL(Dictionary()));
@@ -626,6 +709,7 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_loaded"), &TerniWorld::is_loaded);
     ClassDB::bind_method(D_METHOD("is_running"), &TerniWorld::is_running);
     ClassDB::bind_method(D_METHOD("get_game_folder"), &TerniWorld::get_game_folder);
+    ClassDB::bind_method(D_METHOD("get_mod_folders"), &TerniWorld::get_mod_folders);
     ClassDB::bind_method(D_METHOD("get_last_error"), &TerniWorld::get_last_error);
     ClassDB::bind_method(D_METHOD("get_errors"), &TerniWorld::get_errors);
     ClassDB::bind_method(D_METHOD("get_warnings"), &TerniWorld::get_warnings);
@@ -670,6 +754,8 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_generation", "entity", "row"), &TerniWorld::get_generation);
     ClassDB::bind_method(D_METHOD("get_count", "entity"), &TerniWorld::get_count);
     ClassDB::bind_method(D_METHOD("get_alive_count", "entity"), &TerniWorld::get_alive_count);
+    ClassDB::bind_method(D_METHOD("get_alive_bits", "entity"), &TerniWorld::get_alive_bits);
+    ClassDB::bind_method(D_METHOD("get_free_count", "entity"), &TerniWorld::get_free_count);
 
     ClassDB::bind_method(D_METHOD("add_modifier", "bundle", "entity", "row", "scale", "duration"), &TerniWorld::add_modifier,
                          DEFVAL(RATE_ONE), DEFVAL(0));
@@ -680,13 +766,20 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_modifier_breakdown", "key", "entity", "row"), &TerniWorld::get_modifier_breakdown);
 
     ClassDB::bind_method(D_METHOD("save"), &TerniWorld::save);
-    ClassDB::bind_method(D_METHOD("load_save", "data"), &TerniWorld::load_save);
+    ClassDB::bind_method(D_METHOD("load_save", "data", "by_name"), &TerniWorld::load_save, DEFVAL(false));
+    ClassDB::bind_method(D_METHOD("get_fitted_lines"), &TerniWorld::get_fitted_lines);
     ClassDB::bind_method(D_METHOD("get_state_hash"), &TerniWorld::get_state_hash);
+    ClassDB::bind_method(D_METHOD("get_field_hashes"), &TerniWorld::get_field_hashes);
+    ClassDB::bind_method(D_METHOD("get_entity_hashes"), &TerniWorld::get_entity_hashes);
+    ClassDB::bind_method(D_METHOD("get_stage_times"), &TerniWorld::get_stage_times);
 
     ClassDB::bind_method(D_METHOD("get_device_name"), &TerniWorld::get_device_name);
     ClassDB::bind_method(D_METHOD("get_health"), &TerniWorld::get_health);
     ClassDB::bind_method(D_METHOD("move_to_device", "device"), &TerniWorld::move_to_device);
     ClassDB::bind_method(D_METHOD("get_report"), &TerniWorld::get_report);
+    ClassDB::bind_method(D_METHOD("is_device_lost"), &TerniWorld::is_device_lost);
+    ClassDB::bind_method(D_METHOD("simulate_device_lost"), &TerniWorld::simulate_device_lost);
+    ADD_SIGNAL(MethodInfo("device_lost", PropertyInfo(Variant::STRING, "error")));
 
     BIND_ENUM_CONSTANT(FIELD_QUANTITY);
     BIND_ENUM_CONSTANT(FIELD_RATE);
@@ -698,6 +791,9 @@ void TerniWorld::_bind_methods() {
     BIND_ENUM_CONSTANT(PREFER_DISCRETE);
     BIND_ENUM_CONSTANT(PREFER_INTEGRATED);
     BIND_ENUM_CONSTANT(PREFER_CPU);
+    BIND_ENUM_CONSTANT(ROBUSTNESS_NONE);
+    BIND_ENUM_CONSTANT(ROBUSTNESS_BOUNDED);
+    BIND_ENUM_CONSTANT(ROBUSTNESS_DEFINED);
     BIND_CONSTANT(QUANTITY_ONE);
     BIND_CONSTANT(RATE_ONE);
 }

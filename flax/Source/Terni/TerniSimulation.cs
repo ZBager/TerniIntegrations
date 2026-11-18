@@ -20,6 +20,12 @@ namespace Terni
         public string GameFolder = "Sim";
 
         /// <summary>
+        /// Mod folders loaded on top of the game folder, in order. A relative path starts at the project folder.
+        /// </summary>
+        [EditorOrder(5), Tooltip("Mod folders loaded on top of the game folder, in order. A relative path starts at the project folder.")]
+        public string[] ModFolders = Array.Empty<string>();
+
+        /// <summary>
         /// The folder of the compiled rules. Empty: "spirv" inside the game folder.
         /// </summary>
         [EditorOrder(10), Tooltip("The folder of the compiled rules. Empty: \"spirv\" inside the game folder.")]
@@ -98,9 +104,23 @@ namespace Terni
         public event Action<TerniSimulation> TickCompleted;
 
         /// <summary>
-        /// Loading, starting or a tick failed. The text is also in the log.
+        /// Loading, starting or a tick failed. The text is also in the log. A lost device
+        /// is DeviceLost instead.
         /// </summary>
         public event Action<TerniSimulation, string> Failed;
+
+        /// <summary>
+        /// The device was lost (a rule ran too long and the driver reset the GPU, or the GPU
+        /// went away) and the world has stopped. Call StartWorld() and load the last save
+        /// into World to go on. Visual scripts check IsDeviceLost instead.
+        /// </summary>
+        public event Action<TerniSimulation, string> DeviceLost;
+
+        /// <summary>
+        /// The device was lost; see DeviceLost.
+        /// </summary>
+        [NoSerialize]
+        public bool IsDeviceLost => World != null && World.IsDeviceLost;
 
         /// <summary>
         /// The world, or null before StartWorld() and after StopWorld().
@@ -146,6 +166,7 @@ namespace Terni
             StopWorld();
             LastError = "";
             World = new TerniWorld();
+            World.DeviceLost += OnDeviceLost;
             var options = new TerniStartOptions
             {
                 UseDevice = Device >= 0,
@@ -155,7 +176,8 @@ namespace Terni
                 CacheFolder = string.IsNullOrEmpty(CacheFolder) ? "" : ResolveFolder(CacheFolder),
                 CacheOnly = !CompileRules,
             };
-            var ok = World.Load(ResolveFolder(GameFolder));
+            var mods = Array.ConvertAll(ModFolders ?? Array.Empty<string>(), ResolveFolder);
+            var ok = World.LoadWithMods(ResolveFolder(GameFolder), mods);
             if (ok && StartInBackground)
                 ok = World.BeginStart(options);
             else if (ok)
@@ -176,6 +198,12 @@ namespace Terni
             Started?.Invoke(this);
         }
 
+        private void OnDeviceLost(TerniWorld world)
+        {
+            LastError = world.LastError;
+            DeviceLost?.Invoke(this, LastError);
+        }
+
         private void FailStart()
         {
             var error = World.LastError;
@@ -191,6 +219,7 @@ namespace Terni
         {
             if (World == null)
                 return;
+            World.DeviceLost -= OnDeviceLost;
             World.Stop();
             Destroy(World);
             World = null;
@@ -278,6 +307,8 @@ namespace Terni
 
         private bool Fail()
         {
+            if (IsDeviceLost)
+                return false; // DeviceLost was invoked instead
             var error = World != null ? World.LastError : "";
             LastError = error;
             Paused = true;

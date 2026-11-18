@@ -3,11 +3,14 @@
 #
 # Checks the extension against what Terni gives on its own: the state hash of the galaxy
 # example after 200 ticks, on every device, with blocking and background ticks, and a
-# save that continues to the same state. Writes the result to a file.
+# save that continues to the same state. Then hashes on the device, stage times, a lost
+# device and a mod. Writes the result to a file.
 class_name SelfTest
 
 ## State hash of the galaxy example after 200 ticks, as terni_run prints it.
 const EXPECTED := "ad93f051a2965dfb"
+## A mod for the galaxy example: other growth, a new bundle and a new entity type.
+const MOD := "res://Mods/FasterGrowth"
 
 static var _log := PackedStringArray()
 static var _ok := true
@@ -25,12 +28,17 @@ static func hex(value: int) -> String:
 	return "%08x%08x" % [high, low]
 
 
-static func run(folder: String, result_file: String) -> bool:
+## `parent`: a node to add a TerniSimulation to, for the checks of the node.
+static func run(folder: String, result_file: String, parent: Node) -> bool:
 	_log.clear()
 	_ok = true
 	var devices := TerniWorld.get_devices()
 	var usable := devices.filter(func(d): return d.usable)
 	check(usable.size() > 0, "%d devices, at least one usable" % devices.size())
+	check(usable.all(func(d): return d.robustness >= TerniWorld.ROBUSTNESS_NONE and d.robustness <= TerniWorld.ROBUSTNESS_DEFINED),
+		"buffer robustness per device: %s" % ", ".join(usable.map(func(d): return ["none", "bounded", "defined"][d.robustness])))
+	var first_hashes := {}
+	var first_device := ""
 
 	for device in usable:
 		var name: String = device.name
@@ -60,6 +68,21 @@ static func run(folder: String, result_file: String) -> bool:
 		check(world.get_ticks() == 200, "[%s] 200 ticks" % name)
 		check(hex(end) == EXPECTED, "[%s] state hash %s, expected %s" % [name, hex(end), EXPECTED])
 
+		# Hashes computed on the device: the same on every device.
+		var hashes := world.get_field_hashes()
+		var entity_hashes := world.get_entity_hashes()
+		check(hashes.has("planet.pop") and entity_hashes.has("planet") and entity_hashes.has("terni"),
+			"[%s] hashes on the device: %d fields, %d entity types" % [name, hashes.size(), entity_hashes.size()])
+		if first_device.is_empty():
+			first_hashes = hashes
+			first_device = name
+		else:
+			check(hashes == first_hashes, "[%s] the same field hashes as on %s" % [name, first_device])
+		var stages := world.get_stage_times()
+		check(stages.any(func(t): return t.name == "planet_growth" and t.ran and t.runs == 200),
+			"[%s] GPU time of %d stages (planet_growth: %.4f ms)" % [name, stages.size(),
+			stages.filter(func(t): return t.name == "planet_growth").map(func(t): return t.last_ms).front() if not stages.is_empty() else 0.0])
+
 		var read := world.read_field(planet, "pop")
 		var subscribed := world.get_subscribed(pop)
 		check(subscribed.size() == world.get_count(planet) and subscribed == read.slice(0, subscribed.size()),
@@ -68,7 +91,7 @@ static func run(folder: String, result_file: String) -> bool:
 		check(world.load_save(save) and world.get_ticks() == 100 and world.get_state_hash() == middle, "[%s] save restores tick 100" % name)
 		for i in 100:
 			world.tick()
-		check(hex(world.get_state_hash()) == EXPECTED, "[%s] the save continues to the same hash" % name)
+		check(hex(world.get_state_hash()) == EXPECTED and world.get_field_hashes() == hashes, "[%s] the save continues to the same hash" % name)
 
 		var sicilia := world.find_row(planet, "sicilia")
 		check(sicilia >= 0 and world.get_row_id(planet, sicilia) == "sicilia", "[%s] rows by id" % name)
@@ -115,6 +138,10 @@ static func run(folder: String, result_file: String) -> bool:
 
 	var missing := TerniWorld.new()
 	check(not missing.load(folder + "_missing") and not missing.get_last_error().is_empty(), "a missing folder is an error")
+	check(not missing.load(folder, [MOD + "_missing"]) and not missing.get_last_error().is_empty(), "a missing mod folder is an error")
+
+	_check_device_lost(folder, parent)
+	_check_mod(folder)
 
 	_log.append("PASSED" if _ok else "FAILED")
 	var file := FileAccess.open(result_file, FileAccess.WRITE)
@@ -122,3 +149,88 @@ static func run(folder: String, result_file: String) -> bool:
 	file.close()
 	print("Terni self-test:\n" + "\n".join(_log))
 	return _ok
+
+
+# A lost device, simulated: a real one would reset the GPU.
+static func _check_device_lost(folder: String, parent: Node) -> void:
+	var world := TerniWorld.new()
+	var signalled := []
+	world.device_lost.connect(func(error: String): signalled.append(error))
+	if not world.load(folder) or not world.start():
+		check(false, "lost device: the world starts: " + world.get_last_error())
+		return
+	for i in 100:
+		world.tick()
+	var autosave := world.save()
+	world.simulate_device_lost()
+	check(not world.tick() and world.is_device_lost() and not world.is_running() and signalled.size() == 1,
+		"a lost device stops the world and is signalled: %s" % world.get_last_error())
+	check(not world.tick() and signalled.size() == 1, "calls after it fail, without another signal")
+	check(world.start() and not world.is_device_lost() and world.load_save(autosave), "the world starts again and loads the last save")
+	for i in 100:
+		world.tick()
+	check(hex(world.get_state_hash()) == EXPECTED, "and goes on to the same state")
+	# Found while a tick is in flight.
+	world.begin_tick()
+	world.simulate_device_lost()
+	while not world.tick_ready():
+		pass
+	check(world.is_device_lost() and not world.is_tick_in_flight() and signalled.size() == 2, "a device lost during a background tick is found")
+	world.stop()
+
+	# TerniSimulation: device_lost, not failed.
+	var node := TerniSimulation.new()
+	node.game_folder = folder
+	node.start_in_background = false
+	node.paused = true
+	var events := []
+	node.device_lost.connect(func(_error: String): events.append("device_lost"))
+	node.failed.connect(func(_error: String): events.append("failed"))
+	parent.add_child(node)
+	check(node.is_running(), "a TerniSimulation node starts: " + node.get_last_error())
+	node.get_world().simulate_device_lost()
+	check(not node.step() and node.is_device_lost() and events == ["device_lost"] and not node.get_last_error().is_empty(),
+		"TerniSimulation emits device_lost, not failed (%s)" % ", ".join(events))
+	node.queue_free()
+
+
+# The game's folder with a mod on top: its rules compiled, saves of the game alone loaded
+# by name, and the mod's entity type, whose rows come and go.
+static func _check_mod(folder: String) -> void:
+	var game := TerniWorld.new()
+	var modded := TerniWorld.new()
+	if not game.load(folder) or not game.start():
+		check(false, "mod: the game starts: " + game.get_last_error())
+		return
+	for i in 100:
+		game.tick()
+	var save := game.save()
+	check(modded.load(folder, [MOD]) and modded.get_mod_folders().size() == 1 and modded.get_checksum() != game.get_checksum()
+		and modded.find_bundle("festival") >= 0 and modded.find_entity("fleet") >= 0,
+		"a mod loads on top of the game: its bundle, its entity type, another checksum")
+	check(modded.start(), "the game with the mod starts, the mod's rules compiled: " + modded.get_last_error())
+	if not modded.is_running():
+		return
+	check(TerniWorld.save_checksum(save) == game.get_checksum() and TerniWorld.save_checksum(PackedByteArray([1, 2, 3])) == 0,
+		"save_checksum names the game a save was made with")
+	check(not modded.load_save(save), "a save of the game alone is refused as it is")
+	check(modded.load_save(save, true) and modded.get_ticks() == 100,
+		"and loads by name: %s" % "; ".join(modded.get_fitted_lines()))
+	for i in 100:
+		game.tick()
+		modded.tick()
+	check(hex(game.get_state_hash()) == EXPECTED and modded.get_state_hash() != game.get_state_hash(), "the mod's rules run")
+
+	var fleet := modded.entity("fleet")
+	var free := modded.get_free_count(fleet)
+	var row := modded.create_entity(fleet)
+	var bits := modded.get_alive_bits(fleet)
+	check(free == 64 and row == 0 and modded.get_free_count(fleet) == 63 and bits.size() > 0 and bits[0] & 1 == 1,
+		"free rows and alive bits of a dynamic entity type (%d free, row %d)" % [free, row])
+	modded.destroy_entity(fleet, row)
+	modded.tick()
+	check(modded.get_alive_bits(fleet)[0] & 1 == 0 and modded.get_free_count(fleet) == 64, "a destroyed row is free again a tick later")
+	check(modded.get_alive_bits(modded.entity("planet")).is_empty() and not modded.get_last_error().is_empty(),
+		"alive bits of a type that is not dynamic are an error, not a crash")
+	game.stop()
+	modded.stop()

@@ -28,6 +28,8 @@ namespace Game
             "TerniWorld.Subscribe", "TerniWorld.GetSubscribed", "TerniWorld.AddModifier", "TerniWorld.FindBundle",
             "TerniWorld.GetModifierTotal", "TerniWorld.Save", "TerniWorld.LoadSave", "TerniWorld.Ticks",
             "TerniWorld.LastError", "TerniWorld.GetDevices", "TerniValue.ToDouble", "TerniValue.FromDouble",
+            "TerniSimulation.IsDeviceLost", "TerniWorld.IsDeviceLost", "TerniWorld.LoadWithMods", "TerniWorld.GetEntityHashes",
+            "TerniWorld.GetStageTimes", "TerniWorld.GetFreeCount",
         };
 
         /// <inheritdoc />

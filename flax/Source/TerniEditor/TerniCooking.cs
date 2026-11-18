@@ -13,7 +13,9 @@ namespace TerniEditor
     /// Puts Terni game folders into a cooked game. A game folder is a folder of the project
     /// with a "schema" and a "rules" folder in it. Each one has its rules compiled and is
     /// copied to the same place in the cooked game, with its "spirv" folder, so the path a
-    /// TerniSimulation script has works there too and players need no compiler.
+    /// TerniSimulation script has works there too and players need no compiler. A folder
+    /// with a descriptor.mod is a mod, not a game: mods are not cooked (players put them
+    /// beside the game).
     /// </summary>
     public static class TerniCooking
     {
@@ -42,7 +44,7 @@ namespace TerniEditor
         private static void Find(string folder, string except, int depth, List<string> found)
         {
             var name = Path.GetFileName(folder);
-            if (name.StartsWith(".") || (except != null && Path.GetFullPath(folder) == except))
+            if (name.StartsWith(".") || (except != null && Path.GetFullPath(folder) == except) || File.Exists(Path.Combine(folder, "descriptor.mod")))
                 return;
             if (Directory.Exists(Path.Combine(folder, "schema")) && Directory.Exists(Path.Combine(folder, "rules")))
             {

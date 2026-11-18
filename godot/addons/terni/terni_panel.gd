@@ -2,7 +2,8 @@
 # Copyright (C) 2026 Rafał Zając
 #
 # The Terni tab of the Debugger panel: this machine's devices, the simulations of the
-# running game, and the values of one field, refreshed twice a second.
+# running game (with the GPU time of each stage and a state hash per entity type, computed
+# on the device), and the values of one field, refreshed twice a second.
 @tool
 extends VBoxContainer
 
@@ -15,6 +16,7 @@ var _entity := OptionButton.new()
 var _field := OptionButton.new()
 var _values := Label.new()
 var _states := {}  # node path -> last state
+var _hashes := {}  # node path -> last entity hashes (not sent while a tick is in flight)
 
 
 func _init() -> void:
@@ -59,12 +61,22 @@ func _show_devices() -> void:
 			line += ", the editor renders with it"
 		if not d.usable:
 			line += " - not usable: " + d.why_not
+		elif d.robustness == TerniWorld.ROBUSTNESS_BOUNDED:
+			line += ", reads and writes past a field's end are up to the driver"
+		elif d.robustness == TerniWorld.ROBUSTNESS_NONE:
+			line += ", reads and writes past a field's end are undefined"
 		lines.append(line)
 	_devices.text = "\n".join(lines) if not lines.is_empty() else "No Vulkan device found."
 
 
+## A 64-bit hash as 16 hex digits; Godot ints are signed.
+static func hex(value: int) -> String:
+	return "%08x%08x" % [(value >> 32) & 0xffffffff, value & 0xffffffff]
+
+
 func clear_state() -> void:
 	_states.clear()
+	_hashes.clear()
 	_simulations.text = "Run the game: its TerniSimulation nodes show here."
 	_values.text = ""
 	_node.clear()
@@ -80,17 +92,26 @@ func mark_stopped() -> void:
 func show_state(state: Dictionary) -> void:
 	var known := _states.has(state.node)
 	_states[state.node] = state
+	if state.has("hashes"):
+		_hashes[state.node] = state.hashes
 	var lines := PackedStringArray()
 	for node in _states:
 		var s: Dictionary = _states[node]
+		var hashes: Dictionary = _hashes.get(node, {})
 		lines.append("%s - %s" % [node, s.folder])
 		if s.running:
 			lines.append("    %s, tick %d, %.3f ms on the device per tick%s" % [s.device, s.ticks, s.gpu_ms, " (the device is busy)" if s.slow else ""])
 			for e in s.entities:
 				var alive: String = ", %d alive" % e.alive if e.dynamic else ""
-				lines.append("    %s: %d of %d%s" % [e.name, e.count, e.capacity, alive])
+				var hash: String = ", state %s" % hex(hashes[e.name]) if hashes.has(e.name) else ""
+				lines.append("    %s: %d of %d%s%s" % [e.name, e.count, e.capacity, alive, hash])
+			for t in s.get("stages", []):
+				var average: float = t.total_ms / t.runs if t.runs > 0 else 0.0
+				lines.append("    stage %s: %.3f ms, %.3f ms on average%s" % [t.name, t.last_ms, average, "" if t.ran else " (did not run in the last tick)"])
 		elif s.starting:
 			lines.append("    starting")
+		elif s.get("device_lost", false):
+			lines.append("    the device was lost: " + s.error)
 		else:
 			lines.append("    not running" + (": " + s.error if not s.error.is_empty() else ""))
 	_simulations.text = "\n".join(lines)
