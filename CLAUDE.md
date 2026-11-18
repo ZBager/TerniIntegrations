@@ -39,7 +39,8 @@ API in Terni itself, then Unreal Engine and Unity.
 
 | Path | Contents |
 | --- | --- |
-| `native/` | CMake: Terni (pinned to one commit, `TERNI_COMMIT`), `terni_bridge`, `terni_compile_rules`, `notices/Terni-NOTICES.txt` |
+| `native/` | CMake: Terni (pinned to one commit, `TERNI_COMMIT`), `terni_bridge`, `terni_compile_rules`, `notices/` (`Terni-NOTICES.txt`, and `lavapipe-NOTICES.txt`, appended when the software driver ships) |
+| `native/lavapipe/` | `build.sh` / `build.bat`: Mesa's lavapipe with LLVM inside, from pinned, checksummed sources, into `build/lavapipe`; the plugins' build scripts ship it from there |
 | `native/bridge/` | `terni_bridge`: Terni behind a C++14 interface where no call throws, and the lookup of the renderer's GPU (`renderer_gpu.cpp`: Vulkan UUID, DXGI LUID, vendor and name) |
 | `flax/` | Flax Engine 1.13 plugin: `Source/Terni` (TerniWorld, TerniSimulation), `Source/TerniEditor` (Terni window, cooking, reload), `Example/` with the self-test |
 | `godot/` | Godot 4.5+ GDExtension: `src/` (TerniWorld, TerniSimulation), `addons/terni` (editor plugin, debugger tab, export plugin, C# wrapper), `example/` (GDScript) and `example-csharp/` with self-tests |
@@ -53,6 +54,7 @@ change rules.
 ## Build and test (Linux)
 
 ```sh
+native/lavapipe/build.sh                                 # the software Vulkan driver; once, long (LLVM)
 TERNI_DIR=~/Projects/Terni flax/build-native.sh          # omit TERNI_DIR for the pinned commit
 FLAX_EDITOR=$PWD/build/FlaxEditor/Binaries/Editor/Linux/Development/FlaxEditor flax/test.sh
 flax/test.sh --reload | --visual | --cooked              # same FLAX_EDITOR
@@ -63,6 +65,8 @@ godot/test.sh --window --gpu-index 0                     # renderer GPU check (h
 godot/test.sh --csharp                                   # godot-mono
 GODOT_TEMPLATES=$PWD/build/godot-templates/templates godot/test.sh --export
 GODOT_MONO_TEMPLATES=$PWD/build/godot-templates-mono/templates godot/test.sh --export-csharp
+godot/test.sh --no-gpu [mode]                            # system Vulkan drivers hidden: the shipped driver
+flax/test.sh --no-gpu [mode]                             # (same FLAX_EDITOR; Flax renders with -null)
 ```
 
 - `build/FlaxEditor` is a private copy of the Flax editor with the Linux platform files
@@ -115,6 +119,18 @@ Godot 4.5+ (godot-cpp `godot-4.5-stable`):
 - The first command-line `--import` of a fresh project with the extension crashes Godot
   as it quits (the import itself is done); the test scripts import twice.
 
+The software driver (`native/lavapipe`):
+- Built for compute only and self-contained: `readelf -d` must list only libc, libm and
+  the dynamic linker (the script fails otherwise). Mesa takes libdrm and libudev from
+  pkg-config if it finds them, so the script hides pkg-config and builds libdrm (which
+  Mesa requires on Linux) from Mesa's wrap; a version script exports only the three
+  `vk_icd*` entry points (without it, all of LLVM's symbols are exported).
+- LLVM 23 needs its `libc` folder to configure, and finds Z3 on its own unless told not to.
+- The bridge adds it only where the system has no usable software device, so the
+  normal tests here use the system's lavapipe; `--no-gpu` (`VK_DRIVER_FILES` pointing
+  at nothing) tests the shipped one. Anything a plugin's build copies from `native`
+  must be copied on every build, not after a link (a changed file would not be).
+
 General: run one rule compiler at a time per process (worlds starting together share a
 cache folder); on Windows a file another process has open cannot be replaced.
 
@@ -124,7 +140,10 @@ cache folder); on Windows a file another process has open cannot be replaced.
 - What a plugin offers or lacks: the root README's table and the paragraph under it,
   and Terni's `README.md` (Engine plugins) and `docs/roadmap.md`.
 - Anything shipped beside games: `native/notices/Terni-NOTICES.txt` if a library is
-  added.
+  added. `lavapipe-NOTICES.txt` covers what is inside the software driver: when Mesa or
+  LLVM moves, check the licences of the files it is built from again (`ninja -t deps`
+  in `build/lavapipe/mesa-build` lists them; most carry SPDX identifiers) and copy any
+  new licence texts from the sources.
 
 ## Git
 

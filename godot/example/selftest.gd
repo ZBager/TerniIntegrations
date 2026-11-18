@@ -37,6 +37,9 @@ static func run(folder: String, result_file: String, parent: Node) -> bool:
 	check(usable.size() > 0, "%d devices, at least one usable" % devices.size())
 	check(usable.all(func(d): return d.robustness >= TerniWorld.ROBUSTNESS_NONE and d.robustness <= TerniWorld.ROBUSTNESS_DEFINED),
 		"buffer robustness per device: %s" % ", ".join(usable.map(func(d): return ["none", "bounded", "defined"][d.robustness])))
+	if OS.get_environment("TERNI_EXPECT_SOFTWARE_DRIVER") == "1":
+		check(not TerniWorld.get_software_driver().is_empty() and devices.all(func(d): return d.is_cpu),
+			"no GPU: the software driver shipped with the game is added (%s)" % TerniWorld.get_software_driver())
 	var first_hashes := {}
 	var first_device := ""
 

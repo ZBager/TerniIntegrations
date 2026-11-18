@@ -73,6 +73,24 @@ Rules are compiled by `terni_compile_rules`, which comes with the addon, into th
 `spirv` inside the game folder. A world starts from that folder and runs the compiler
 only for rules that are new or have changed.
 
+### Without a usable GPU
+
+On a machine whose GPUs cannot run the simulation (an old GPU, a virtual machine, a
+server without one), it runs on the CPU with Mesa's lavapipe, a software Vulkan driver:
+the same results, more slowly. `native/lavapipe/build.sh` (Windows:
+`native\lavapipe\build.bat`) builds it from source, with LLVM inside and nothing else
+needed on the player's machine; once it is built, `build.sh` puts it into
+`addons/terni/bin`, and exported games get it with the rest
+(`TERNI_SOFTWARE_DRIVER=none` leaves it out). The first time devices are listed or a
+world starts, the addon adds it to the system's drivers, unless the system has a
+software device of its own (most Linux distributions come with Mesa's);
+`TerniWorld.get_software_driver()` says whether it did. The default preference then
+chooses a GPU when one can run the simulation, and lavapipe otherwise.
+
+It adds about 73 MB to a game. It needs the Vulkan loader (`vulkan-1.dll`,
+`libvulkan.so.1`), version 1.3.234 or newer, which comes with every current GPU
+driver; without one, the extension does not load at all.
+
 ### Mods
 
 A mod is a folder laid out like the game's, holding only what it changes; Terni's
@@ -204,7 +222,11 @@ godot/test.sh --window --gpu-index 0   # in a window, with Godot on its GPU 0
 godot/test.sh --csharp                 # the C# example, with godot-mono
 GODOT_TEMPLATES=/path/to/templates godot/test.sh --export   # export for Linux, change a rule, add the mod, test there
 GODOT_MONO_TEMPLATES=/path/to/templates godot/test.sh --export-csharp   # the same with the C# example
+godot/test.sh --no-gpu [mode]          # any of the above with the system's Vulkan drivers hidden
 ```
+
+`--no-gpu` checks that the software driver shipped with the addon is added and that
+everything runs on it; build it first (`native/lavapipe/build.sh`).
 
 The first command-line import of a fresh project with the extension makes Godot 4.7
 crash as it quits, after the import is done; opening the editor is not affected, and
@@ -215,4 +237,5 @@ holding `linux_release.x86_64` (from the official templates archive) in `GODOT_T
 
 ## Not done yet
 
-- Shipping a software Vulkan driver, for machines whose GPUs cannot run the simulation.
+- The software Vulkan driver is built and tested on Linux; its Windows build
+  (`native\lavapipe\build.bat`) has not been run yet.

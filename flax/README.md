@@ -122,6 +122,24 @@ beside its binaries, into the folder `spirv` inside the game folder. A world sta
 from that folder; only when a rule is new or has changed does the editor run the
 compiler. `TerniWorld.CompileRules` does the same from your own build step.
 
+### Without a usable GPU
+
+On a machine whose GPUs cannot run the simulation (an old GPU, a virtual machine, a
+server without one), it runs on the CPU with Mesa's lavapipe, a software Vulkan driver:
+the same results, more slowly. `native/lavapipe/build.sh` (Windows:
+`native\lavapipe\build.bat`) builds it from source, with LLVM inside and nothing else
+needed on the player's machine; once it is built, `build-native.sh` puts it into
+`ThirdParty/Terni/bin`, and it is deployed and cooked with the rest
+(`TERNI_SOFTWARE_DRIVER=none` leaves it out). The first time devices are listed or a
+world starts, the plugin adds it to the system's drivers, unless the system has a
+software device of its own (most Linux distributions come with Mesa's);
+`TerniWorld.SoftwareDriver` says whether it did. The default preference then chooses a
+GPU when one can run the simulation, and lavapipe otherwise.
+
+It adds about 73 MB to a game. It needs the Vulkan loader (`vulkan-1.dll`,
+`libvulkan.so.1`), version 1.3.234 or newer, which comes with every current GPU
+driver; without one, the plugin does not load at all.
+
 ### Mods
 
 A mod is a folder laid out like the game's, holding only what it changes; Terni's
@@ -218,7 +236,11 @@ purpose, so the editor's log ends with a few `[Terni]` errors even when it passe
 - `./test.sh --reload` (Windows: `test.bat reload`) starts a world in the editor, makes
   the editor rebuild and reload the scripts, and checks that the world was freed and a
   new one runs.
+- `./test.sh --no-gpu [mode]` runs any of the above with the system's Vulkan drivers
+  hidden (and Flax's null renderer): the software driver deployed with the plugin must
+  be added and everything must run on it. Build it first (`native/lavapipe/build.sh`).
 
 ## Not done yet
 
-- Shipping a software Vulkan driver, for machines whose GPUs cannot run the simulation.
+- The software Vulkan driver is built and tested on Linux; its Windows build
+  (`native\lavapipe\build.bat`) has not been run yet.

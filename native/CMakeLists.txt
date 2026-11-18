@@ -12,7 +12,8 @@
 # flax/ThirdParty/Terni, godot/build.sh into build/terni.
 #
 # Terni comes from GitHub, pinned to one commit. -DTERNI_DIR=/path/to/Terni builds a
-# local checkout instead.
+# local checkout instead. -DTERNI_SOFTWARE_DRIVER=/path/to/lavapipe ships a software
+# Vulkan driver.
 cmake_minimum_required(VERSION 3.21)
 project(TerniIntegrationsNative LANGUAGES CXX)
 
@@ -92,8 +93,34 @@ else()
           DIRECTORIES ${_vulkan_libdir} "$ENV{VULKAN_SDK}/Bin"
           RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
+# A software Vulkan driver (Mesa's lavapipe) to ship beside the programs, for machines
+# whose GPUs cannot run the simulation: the plugins add it with terni_bridge's
+# add_shipped_driver(). Give the driver library; it is installed under the name the
+# bridge looks for.
+set(TERNI_SOFTWARE_DRIVER "" CACHE FILEPATH "A lavapipe library (vulkan_lvp.dll, libvulkan_lvp.so) to ship; empty: none")
+if(TERNI_SOFTWARE_DRIVER)
+  if(NOT EXISTS "${TERNI_SOFTWARE_DRIVER}")
+    message(FATAL_ERROR "TERNI_SOFTWARE_DRIVER: there is no file ${TERNI_SOFTWARE_DRIVER}")
+  endif()
+  if(WIN32)
+    set(_driver_name vulkan_lvp.dll)
+  else()
+    set(_driver_name libvulkan_lvp.so)
+  endif()
+  install(FILES "${TERNI_SOFTWARE_DRIVER}" DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME ${_driver_name})
+  message(STATUS "Software Vulkan driver shipped: ${TERNI_SOFTWARE_DRIVER}")
+endif()
 install(TARGETS terni_bridge ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Terni's notice and the licences of shaderc, glslang, SPIRV-Tools and SPIRV-Headers,
 # beside the programs: plugins ship everything in bin/ with the game.
-install(FILES notices/Terni-NOTICES.txt DESTINATION ${CMAKE_INSTALL_BINDIR})
+# With the software driver, the notices of what is inside it follow Terni's.
+set(_notices "${CMAKE_CURRENT_SOURCE_DIR}/notices/Terni-NOTICES.txt")
+if(TERNI_SOFTWARE_DRIVER)
+  file(READ notices/Terni-NOTICES.txt _terni_notices)
+  file(READ notices/lavapipe-NOTICES.txt _lavapipe_notices)
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Terni-NOTICES.txt" "${_terni_notices}\n\n${_lavapipe_notices}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS notices/Terni-NOTICES.txt notices/lavapipe-NOTICES.txt)
+  set(_notices "${CMAKE_CURRENT_BINARY_DIR}/Terni-NOTICES.txt")
+endif()
+install(FILES "${_notices}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES bridge/terni_bridge.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

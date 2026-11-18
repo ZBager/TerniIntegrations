@@ -15,7 +15,15 @@
 #                          linux_release.x86_64 in GODOT_TEMPLATES
 #   ./test.sh --export-csharp  the same with the C# example and godot-mono; .NET export
 #                          templates installed, or their folder in GODOT_MONO_TEMPLATES
+#   ./test.sh --no-gpu [mode]  any of the above as on a machine whose Vulkan drivers give
+#                          no device: the system's drivers are hidden, and the software
+#                          driver shipped with the addon must be added and used. Build with
+#                          TERNI_SOFTWARE_DRIVER for that.
 set -euo pipefail
+if [[ "${1:-}" == "--no-gpu" ]]; then
+    shift
+    export VK_DRIVER_FILES=/nonexistent/terni.json VK_ICD_FILENAMES=/nonexistent/terni.json TERNI_EXPECT_SOFTWARE_DRIVER=1
+fi
 cd "$(dirname "$0")/example"
 GODOT="${GODOT:-godot}"
 RESULT="$(mktemp)"

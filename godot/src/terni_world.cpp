@@ -115,6 +115,30 @@ String compiler_path() {
     return FileAccess::file_exists(path) ? path : String();
 }
 
+// The software Vulkan driver shipped beside this library (lavapipe), added once per
+// process before devices are listed; see terni_bridge::add_shipped_driver. Returns its
+// path if it was added.
+std::string add_shipped_driver() {
+    static std::once_flag once;
+    static std::string added;
+    std::call_once(once, [] {
+        std::string path, error;
+        switch (terni_bridge::add_shipped_driver(to_std(library_folder()), path, error)) {
+            case terni_bridge::DriverResult::added:
+                added = path;
+                UtilityFunctions::print("[Terni] added the software Vulkan driver ", to_godot(path));
+                break;
+            case terni_bridge::DriverResult::failed:
+                UtilityFunctions::push_warning("[Terni] the software Vulkan driver ", to_godot(path),
+                                               " could not be added: ", to_godot(error));
+                break;
+            default:
+                break;
+        }
+    });
+    return added;
+}
+
 // What the renderer says about the GPU it renders with. Main thread.
 terni_bridge::RendererGpu renderer_gpu() {
     terni_bridge::RendererGpu gpu;
@@ -215,6 +239,7 @@ void TerniWorld::report() const {
 // ---- devices and tools ----
 
 Array TerniWorld::get_devices() {
+    add_shipped_driver();
     Array out;
     std::string error;
     for (const terni_bridge::Device& d : terni_bridge::devices(error)) {
@@ -233,11 +258,14 @@ Array TerniWorld::get_devices() {
 }
 
 int64_t TerniWorld::find_renderer_device() {
+    add_shipped_driver();
     std::string error;
     const int index = terni_bridge::find_device(renderer_gpu(), error);
     if (!error.empty()) UtilityFunctions::push_error("[Terni] " + to_godot(error));
     return index;
 }
+
+String TerniWorld::get_software_driver() { return to_godot(add_shipped_driver()); }
 
 void TerniWorld::stop_all() {
     for (TerniWorld* world : worlds()) world->stop();
@@ -344,6 +372,7 @@ bool TerniWorld::set_capacity(int64_t entity, int64_t rows) {
 // (String; default: "spirv" in the game folder), cache_only (bool: never compile rules),
 // validation (bool).
 TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
+    add_shipped_driver();
     if (!bridge()->loaded()) {
         fail("no game is loaded");
         return nullptr;
@@ -691,6 +720,7 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_static_method("TerniWorld", D_METHOD("get_devices"), &TerniWorld::get_devices);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("find_renderer_device"), &TerniWorld::find_renderer_device);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("stop_all"), &TerniWorld::stop_all);
+    ClassDB::bind_static_method("TerniWorld", D_METHOD("get_software_driver"), &TerniWorld::get_software_driver);
     ClassDB::bind_static_method("TerniWorld", D_METHOD("compile_rules", "game_folder", "cache_folder", "mods"), &TerniWorld::compile_rules,
                                 DEFVAL(PackedStringArray()));
     ClassDB::bind_static_method("TerniWorld", D_METHOD("save_checksum", "data"), &TerniWorld::save_checksum);

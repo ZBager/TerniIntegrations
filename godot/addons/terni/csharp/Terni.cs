@@ -201,6 +201,11 @@ namespace Terni
         /// <summary>The device the engine renders with, or -1.</summary>
         public static int FindRendererDevice() => S("find_renderer_device").AsInt32();
         public static void StopAll() => S("stop_all");
+        /// <summary>
+        /// The software Vulkan driver shipped with the game, if it was added: on a machine whose
+        /// own drivers have no usable software device. Empty otherwise.
+        /// </summary>
+        public static string SoftwareDriver => S("get_software_driver").AsString();
 
         /// <summary>
         /// Compiles a game folder's rules, with mod folders on top if given, into the cache

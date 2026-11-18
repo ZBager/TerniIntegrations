@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <stdexcept>
 
@@ -40,6 +42,47 @@ std::vector<Device> devices(std::string& error) {
 }
 
 bool can_compile_rules() { return terni::can_compile_rules(); }
+
+const char* shipped_driver_name() {
+#ifdef _WIN32
+    return "vulkan_lvp.dll";
+#else
+    return "libvulkan_lvp.so";
+#endif
+}
+
+DriverResult add_shipped_driver(const std::string& folder, std::string& path, std::string& error) {
+    static std::mutex mutex;
+    static bool done = false;
+    static DriverResult result = DriverResult::not_shipped;
+    static std::string first_path, first_error;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!done) {
+        done = true;
+        std::error_code ec;
+        const std::filesystem::path file = std::filesystem::path(folder) / shipped_driver_name();
+        first_path = file.string();
+        try {
+            bool system_has_one = false;
+            for (const terni::DeviceInfo& d : terni::VulkanContext::list_devices())
+                system_has_one = system_has_one || (d.usable && d.cpu());
+            if (!std::filesystem::exists(file, ec)) {
+                result = DriverResult::not_shipped;
+            } else if (system_has_one) {
+                result = DriverResult::system_has_one;
+            } else {
+                terni::add_vulkan_driver(first_path);
+                result = DriverResult::added;
+            }
+        } catch (const std::exception& e) {
+            result = DriverResult::failed;
+            first_error = e.what();
+        }
+    }
+    path = first_path;
+    error = first_error;
+    return result;
+}
 
 bool save_checksum(const uint8_t* data, size_t size, uint64_t& checksum, std::string& error) {
     checksum = 0;

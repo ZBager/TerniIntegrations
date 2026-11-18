@@ -102,6 +102,32 @@ namespace
         return String::Empty;
     }
 
+    // The software Vulkan driver deployed beside this module (lavapipe), added once per
+    // process before devices are listed; see terni_bridge::add_shipped_driver. Returns its
+    // path if it was added.
+    const String& AddShippedDriver()
+    {
+        static std::once_flag once;
+        static String added;
+        std::call_once(once, []
+        {
+            std::string path, error;
+            switch (terni_bridge::add_shipped_driver(ToStd(ModuleFolder()), path, error))
+            {
+            case terni_bridge::DriverResult::added:
+                added = ToFlax(path);
+                LOG(Info, "[Terni] added the software Vulkan driver {0}", added);
+                break;
+            case terni_bridge::DriverResult::failed:
+                LOG(Warning, "[Terni] the software Vulkan driver {0} could not be added: {1}", ToFlax(path), ToFlax(error));
+                break;
+            default:
+                break;
+            }
+        });
+        return added;
+    }
+
     // The ID of the GPU the engine renders with, from the renderer's own objects. Main thread.
     void RendererGpu(terni_bridge::RendererGpu& gpu)
     {
@@ -218,6 +244,7 @@ void TerniWorld::Report() const
 
 Array<TerniDevice> TerniWorld::GetDevices()
 {
+    AddShippedDriver();
     Array<TerniDevice> out;
     std::string error;
     for (const terni_bridge::Device& d : terni_bridge::devices(error))
@@ -239,6 +266,7 @@ Array<TerniDevice> TerniWorld::GetDevices()
 
 int32 TerniWorld::FindRendererDevice()
 {
+    AddShippedDriver();
     terni_bridge::RendererGpu gpu;
     RendererGpu(gpu);
     std::string error;
@@ -246,6 +274,11 @@ int32 TerniWorld::FindRendererDevice()
     if (!error.empty())
         LOG(Error, "[Terni] {0}", ToFlax(error));
     return index;
+}
+
+String TerniWorld::GetSoftwareDriver()
+{
+    return AddShippedDriver();
 }
 
 Array<TerniWorld*> TerniWorld::GetWorlds()
@@ -413,6 +446,7 @@ terni_bridge::World* TerniWorld::Bridge() const
 
 TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
 {
+    AddShippedDriver();
     if (!Bridge()->loaded())
     {
         Fail(TEXT("no game is loaded"));

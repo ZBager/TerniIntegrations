@@ -240,6 +240,13 @@ public:
     /// </summary>
     API_FUNCTION() static int32 FindRendererDevice();
 
+    /// <summary>
+    /// The software Vulkan driver (lavapipe) deployed with the plugin, if it was added: on a
+    /// machine whose own drivers have no usable software device, it gives one, so the
+    /// simulation runs on the CPU where no GPU can run it. Empty otherwise.
+    /// </summary>
+    API_PROPERTY() static String GetSoftwareDriver();
+
     /// <summary>The worlds that are loaded or running, for editor tools.</summary>
     API_FUNCTION() static Array<TerniWorld*> GetWorlds();
 

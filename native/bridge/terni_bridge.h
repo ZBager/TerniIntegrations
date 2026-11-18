@@ -70,6 +70,23 @@ struct FieldInfo {
 
 std::vector<Device> devices(std::string& error);
 bool can_compile_rules();
+// ---- a software Vulkan driver shipped with the game ----
+enum class DriverResult {
+    added,           // the shipped driver was added to the system's
+    not_shipped,     // there is none in the folder
+    system_has_one,  // the system has a usable software device of its own: not needed
+    failed,          // it could not be added (see `error`): the system's devices only
+};
+// The software Vulkan driver shipped in `folder` (vulkan_lvp.dll on Windows,
+// libvulkan_lvp.so elsewhere), added to the system's drivers unless the system has a
+// usable software device already. Then a machine whose GPUs cannot run the simulation
+// still has a device, and DevicePreference::Discrete falls back to it. Works once per
+// process: call it before devices are listed (it changes their indices); later calls
+// return the first result. `path` gets the driver's path.
+DriverResult add_shipped_driver(const std::string& folder, std::string& path, std::string& error);
+// The file name of the shipped driver on this system.
+const char* shipped_driver_name();
+
 // The checksum of the game a save was made with. False if the data is not an intact save.
 bool save_checksum(const uint8_t* data, size_t size, uint64_t& checksum, std::string& error);
 

@@ -40,6 +40,7 @@ public:
     // devices and tools
     static Array get_devices();
     static int64_t find_renderer_device();
+    static String get_software_driver();
     static void stop_all();
     static void unload_all();
     static Dictionary compile_rules(const String& game_folder, const String& cache_folder, const PackedStringArray& mods);

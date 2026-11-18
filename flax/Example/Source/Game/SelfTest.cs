@@ -39,6 +39,9 @@ namespace Game
                 Check(devices.Any(d => d.Usable), $"{devices.Length} devices, at least one usable");
                 Check(devices.Where(d => d.Usable).All(d => Enum.IsDefined(d.Robustness)),
                       "buffer robustness per device: " + string.Join(", ", devices.Where(d => d.Usable).Select(d => d.Robustness)));
+                if (Environment.GetEnvironmentVariable("TERNI_EXPECT_SOFTWARE_DRIVER") == "1")
+                    Check(TerniWorld.SoftwareDriver.Length > 0 && devices.All(d => d.IsCpu),
+                          $"no GPU: the software driver shipped with the game is added ({TerniWorld.SoftwareDriver})");
                 TerniHash[] firstHashes = null;
                 string firstDevice = null;
 

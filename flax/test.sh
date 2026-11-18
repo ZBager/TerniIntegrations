@@ -17,16 +17,29 @@
 #   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --visual   checks, by the editor's own rules,
 #                                                        that visual scripts can use what
 #                                                        they need of the plugin
+#   FLAX_EDITOR=/path/to/FlaxEditor ./test.sh --no-gpu [mode]   any of the above as on a
+#                                                        machine whose Vulkan drivers give no
+#                                                        device: the system's drivers are
+#                                                        hidden (Flax renders nothing), and
+#                                                        the software driver deployed with the
+#                                                        plugin must be added and used. Build
+#                                                        with TERNI_SOFTWARE_DRIVER for that.
 set -euo pipefail
+NULL=()
+if [[ "${1:-}" == "--no-gpu" ]]; then
+    shift
+    export VK_DRIVER_FILES=/nonexistent/terni.json VK_ICD_FILENAMES=/nonexistent/terni.json TERNI_EXPECT_SOFTWARE_DRIVER=1
+    NULL=(-null)
+fi
 cd "$(dirname "$0")/Example"
 : "${FLAX_EDITOR:?Set FLAX_EDITOR to the FlaxEditor program}"
 RESULT="$(mktemp)"
 if [[ "${1:-}" == "--visual" ]]; then
-    TERNI_VISUAL_CHECK="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" > /dev/null 2>&1 || true
+    TERNI_VISUAL_CHECK="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "${NULL[@]}" "-project=$PWD" > /dev/null 2>&1 || true
     sed -i '/^usable/d' "$RESULT"   # the full list is long; keep what failed and the checks
 elif [[ "${1:-}" == "--reload" ]]; then
     rm -f "$RESULT.reloading"
-    TERNI_RELOAD_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" > /dev/null 2>&1 || true
+    TERNI_RELOAD_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "${NULL[@]}" "-project=$PWD" > /dev/null 2>&1 || true
     LOG="Logs/$(ls -t Logs | head -1)"
     (iconv -f utf-16 -t utf-8 "$LOG" 2>/dev/null || cat "$LOG") | grep -a -q "scripts reload: unloaded 1 world" \
         || { echo "the editor did not free the world when the scripts reloaded"; exit 1; }
@@ -42,11 +55,11 @@ elif [[ "${1:-}" == "--cooked" ]]; then
     # A mod installed beside the game, as players install them.
     cp -r Mods Output/Linux/
     BEFORE=$(ls Output/Linux/Galaxy/spirv | wc -l)
-    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$GAME" -headless -mute > /dev/null 2>&1 || true
+    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL 300 "$GAME" -headless -mute "${NULL[@]}" > /dev/null 2>&1 || true
     [[ $(ls Output/Linux/Galaxy/spirv | wc -l) -gt $BEFORE ]] || { echo "the cooked game did not compile the changed rule"; exit 1; }
 else
     SCENE=$(grep -m1 '"ID"' Content/Main.scene | sed -E 's/.*"([0-9a-f]{32})".*/\1/')
-    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "-project=$PWD" -play "$SCENE" > /dev/null 2>&1 || true
+    TERNI_EXAMPLE_TEST="$RESULT" timeout -s KILL "${TIMEOUT:-300}" "$FLAX_EDITOR" -std -headless -mute "${NULL[@]}" "-project=$PWD" -play "$SCENE" > /dev/null 2>&1 || true
 fi
 cat "$RESULT"
 grep -q '^PASSED$' "$RESULT"

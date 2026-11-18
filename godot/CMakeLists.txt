@@ -43,9 +43,12 @@ if(NOT WIN32)
   target_link_options(terni PRIVATE -Wl,--no-undefined -Wl,--exclude-libs,ALL -static-libstdc++ -static-libgcc)
 endif()
 
-# The library and what ships beside it, into the addon.
+# The library and what ships beside it, into the addon: on every build, since what
+# ../native installed (the rule compiler, the software driver) can change without the
+# library being linked again.
 set(ADDON_BIN "${CMAKE_CURRENT_SOURCE_DIR}/addons/terni/bin")
-add_custom_command(TARGET terni POST_BUILD
+add_custom_target(terni_addon ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory "${ADDON_BIN}"
   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:terni>" "${ADDON_BIN}/"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory "${TERNI_PREFIX}/bin" "${ADDON_BIN}")
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${TERNI_PREFIX}/bin" "${ADDON_BIN}"
+  DEPENDS terni VERBATIM)
