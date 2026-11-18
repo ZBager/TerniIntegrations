@@ -51,7 +51,7 @@ endif()
 message(STATUS "terni_compile_rules: shaderc ${TERNI_SHADERC_STATIC}" " (ON: linked in, OFF: shared libraries installed beside it)")
 
 set(TERNI_DIR "" CACHE PATH "Local Terni checkout to build instead of the pinned GitHub commit")
-set(TERNI_COMMIT c816b9b14a4d30b26d7ff162d1b69a2ab2b45ace)
+set(TERNI_COMMIT 12aa017c79dfaf49c1b9f3cc0cc12ece1aebfdf4)
 set(FETCHCONTENT_SOURCE_DIR_TERNI "${TERNI_DIR}")  # empty: fetch the pinned commit
 include(FetchContent)
 FetchContent_Declare(terni GIT_REPOSITORY https://github.com/ZBager/Terni.git GIT_TAG ${TERNI_COMMIT})
