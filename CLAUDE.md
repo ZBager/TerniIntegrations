@@ -6,8 +6,10 @@ TerniIntegrations holds the engine plugins for [Terni](https://github.com/ZBager
 a C++20 library that runs the tick of a strategy game as Vulkan compute shaders with
 bit-identical results on every GPU and CPU. Each plugin lets a game use Terni through an
 engine's own scripting and editor. Read `README.md` and each plugin's README first.
-Terni's own `docs/roadmap.md` (section "Engine integrations") is the plan: Flax and
-Godot are done; next is a C API in Terni itself, then Unreal Engine and Unity.
+`ROADMAP.md` is the plan for the plugins: work in its order unless asked otherwise, and
+update it when an item is done or the plan changes. The larger steps are in Terni's own
+`docs/roadmap.md` (section "Engine integrations"): Flax and Godot are done; next is a C
+API in Terni itself, then Unreal Engine and Unity.
 
 ## Hard rules
 

@@ -24,7 +24,8 @@ in the background), read fields in bulk, write fields, modifiers and entities, s
 load, run on the GPU the engine renders with or a chosen one, report errors through the
 engine's log, show the simulation in the editor, and put game folders and the rule
 compiler into exported games. Still to come in every plugin: shipping a software Vulkan
-driver for machines whose GPUs cannot run the simulation.
+driver for machines whose GPUs cannot run the simulation, mod folders on top of a
+game's folder, and more; see [ROADMAP.md](ROADMAP.md).
 
 Licensed like Terni: LGPL-2.1-only with the Terni linking exception (`LICENSE`,
 `LICENSE-EXCEPTION`).
