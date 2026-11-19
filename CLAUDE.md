@@ -40,7 +40,7 @@ API in Terni itself, then Unreal Engine and Unity.
 | Path | Contents |
 | --- | --- |
 | `native/` | CMake: Terni (pinned to one commit, `TERNI_COMMIT`), `terni_bridge`, `terni_compile_rules`, `notices/` (`Terni-NOTICES.txt`, and `lavapipe-NOTICES.txt`, appended when the software driver ships) |
-| `native/lavapipe/` | `build.sh` / `build.bat`: Mesa's lavapipe with LLVM inside, from pinned, checksummed sources, into `build/lavapipe`; the plugins' build scripts ship it from there |
+| `native/lavapipe/` | `build.sh` / `build.bat`: Mesa's lavapipe with LLVM inside, from pinned, checksummed sources, into `build/lavapipe`; the plugins' build scripts ship it from there. `build.bat` unpacks with `unpack.py` (Windows' `tar.exe` hung on the LLVM sources in CI) |
 | `native/bridge/` | `terni_bridge`: Terni behind a C++14 interface where no call throws, and the lookup of the renderer's GPU (`renderer_gpu.cpp`: Vulkan UUID, DXGI LUID, vendor and name) |
 | `flax/` | Flax Engine 1.13 plugin: `Source/Terni` (TerniWorld, TerniSimulation), `Source/TerniEditor` (Terni window, cooking, reload), `Example/` with the self-test |
 | `godot/` | Godot 4.5+ GDExtension: `src/` (TerniWorld, TerniSimulation), `addons/terni` (editor plugin, debugger tab, export plugin, C# wrapper), `example/` (GDScript) and `example-csharp/` with self-tests |
