@@ -43,16 +43,26 @@ goto result
 :csharp
 if "%GODOT_MONO%"=="" (echo Set GODOT_MONO to the Godot .NET program & exit /b 2)
 cd example-csharp
-if not exist .godot "%GODOT_MONO%" --headless --path . --import > nul 2>&1
+rem MSBuild keeps worker processes for later builds, and they hold on to the output Godot
+rem reads from dotnet build: Godot would wait for it to end, for ever.
+set MSBUILDDISABLENODEREUSE=1
+set DOTNET_CLI_USE_MSBUILD_SERVER=0
+if not exist .godot (
+    echo importing the project
+    "%GODOT_MONO%" --headless --path . --import > nul 2>&1
+)
 rem So that a failed build is not hidden by an old one.
 if exist .godot\mono\temp\bin\Debug\TerniExampleCs.dll del .godot\mono\temp\bin\Debug\TerniExampleCs.dll
+echo building the C# project
 "%GODOT_MONO%" --headless --path . --build-solutions --quit > "%TEMP%\terni_csharp_build.txt" 2>&1
 if not exist .godot\mono\temp\bin\Debug\TerniExampleCs.dll (
     type "%TEMP%\terni_csharp_build.txt"
     echo The C# project did not build. It needs the .NET 8 SDK or newer: dotnet --list-sdks
     exit /b 1
 )
+echo importing again, with the C# project built
 "%GODOT_MONO%" --headless --path . --import > nul 2>&1
+echo running the self-test
 "%GODOT_MONO%" --headless --path .
 
 :result
