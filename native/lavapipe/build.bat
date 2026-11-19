@@ -35,6 +35,13 @@ if errorlevel 1 (
     call "%VS%\VC\Auxiliary\Build\vcvars64.bat" > nul || exit /b 1
 )
 
+rem Windows' own tar (bsdtar). Another tar on PATH, such as Git's GNU tar, takes the drive
+rem letter in D:\...\llvm.tar.xz for a remote host and waits for it forever.
+set TAR=%SystemRoot%\System32\tar.exe
+if not exist "%TAR%" (echo %TAR% was not found: it comes with Windows 10 1803 and later & exit /b 1)
+echo tar on PATH:
+where tar 2> nul
+
 rem ---- LLVM: static libraries for the x86 CPU only, no tools but llvm-config ----
 set LLVM_SRC=%ROOT%\src\llvm-project-%LLVM_VERSION%.src
 set LLVM_BUILD=%ROOT%\llvm-build
@@ -46,7 +53,7 @@ if not exist "%LLVM_SRC%\libc" (
     rem small files is slow on Windows (the tests alone are 68,000 of 89,000), and three
     rem files in mlgo-utils are symbolic links, which need rights to make.
     echo unpacking LLVM
-    tar -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" ^
+    "%TAR%" -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" ^
         --exclude "%M%/combine_training_corpus.py" --exclude "%M%/extract_ir.py" --exclude "%M%/make_corpus.py" ^
         --exclude "%P%/llvm/test" --exclude "%P%/llvm/unittests" --exclude "%P%/llvm/docs" --exclude "%P%/llvm/utils/gn" ^
         --exclude "%P%/libc/test" --exclude "%P%/libc/docs" --exclude "%P%/libc/benchmarks" --exclude "%P%/libc/fuzzing" ^
@@ -69,7 +76,7 @@ set MESA_BUILD=%ROOT%\mesa-build
 if not exist "%MESA_SRC%" (
     call :fetch https://archive.mesa3d.org/mesa-%MESA_VERSION%.tar.xz %MESA_SHA256% || exit /b 1
     echo unpacking Mesa
-    tar -xf "%ROOT%\downloads\mesa-%MESA_VERSION%.tar.xz" -C "%ROOT%\src" < nul || exit /b 1
+    "%TAR%" -xf "%ROOT%\downloads\mesa-%MESA_VERSION%.tar.xz" -C "%ROOT%\src" < nul || exit /b 1
 )
 set LLVM_CONFIG=%LLVM_BUILD:\=/%/bin/llvm-config.exe
 > "%ROOT%\llvm.ini" echo [binaries]
