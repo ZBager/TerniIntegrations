@@ -5,7 +5,9 @@
 # the tests run on lavapipe, Mesa's Vulkan driver for the CPU, which is a device like any
 # other (the self-tests check the galaxy example's state hash on every device). The
 # software driver the plugins ship (native/lavapipe) is built once per version of its
-# build script and cached: LLVM takes long.
+# build script and cached: LLVM takes long. So are the builds of Terni and godot-cpp, both
+# pinned (native/CMakeLists.txt, godot/CMakeLists.txt): kept whole, with the build tools'
+# own records, so that only the plugins' own code, fresh from the checkout, is built again.
 name: CI
 
 on:
@@ -155,6 +157,18 @@ jobs:
           echo "GODOT_MONO=$PWD/Godot_v$GODOT_VERSION-stable_mono_linux_x86_64/Godot_v$GODOT_VERSION-stable_mono_linux.x86_64" >> "$GITHUB_ENV"
       - name: Vulkan devices
         run: vulkaninfo --summary
+      - name: Cached build of Terni (pinned in native/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/native
+          key: native-${{ runner.os }}-${{ hashFiles('native/CMakeLists.txt') }}
+          restore-keys: native-${{ runner.os }}-
+      - name: Cached build of godot-cpp (pinned in godot/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/godot
+          key: godot-${{ runner.os }}-${{ hashFiles('godot/CMakeLists.txt') }}
+          restore-keys: godot-${{ runner.os }}-
       - name: Build
         run: godot/build.sh
       - name: Test (GDScript)
@@ -218,6 +232,18 @@ jobs:
           # The console builds: they wait for the game and print its output.
           "GODOT=$dir\Godot_v$env:GODOT_VERSION-stable_win64_console.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "GODOT_MONO=$dir\Godot_v$env:GODOT_VERSION-stable_mono_win64\Godot_v$env:GODOT_VERSION-stable_mono_win64_console.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Cached build of Terni (pinned in native/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/native
+          key: native-${{ runner.os }}-${{ hashFiles('native/CMakeLists.txt') }}
+          restore-keys: native-${{ runner.os }}-
+      - name: Cached build of godot-cpp (pinned in godot/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/godot
+          key: godot-${{ runner.os }}-${{ hashFiles('godot/CMakeLists.txt') }}
+          restore-keys: godot-${{ runner.os }}-
       - name: Build
         shell: cmd
         run: godot\build.bat
@@ -234,12 +260,10 @@ jobs:
       # The Vulkan loader ignores VK_DRIVER_FILES in an elevated process, which CI steps
       # are: the runner's lavapipe is taken out of the registry instead (the last step).
       - name: No Vulkan driver on the machine
-        shell: pwsh
+        shell: cmd
         run: |
-          $key = "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers"
-          if (Test-Path $key) {
-            (Get-Item $key).Property | ForEach-Object { Write-Output "removing $_"; Remove-ItemProperty -Path $key -Name $_ }
-          }
+          reg query "HKLM\SOFTWARE\Khronos\Vulkan\Drivers"
+          reg delete "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" /f
       - name: Test without a GPU (GDScript, the shipped software driver)
         timeout-minutes: 15
         shell: cmd
@@ -296,6 +320,12 @@ jobs:
           unzip -q linux.zip -d "$GITHUB_WORKSPACE/build/FlaxEditor/Source/Platforms/Linux"
       - name: Vulkan devices
         run: vulkaninfo --summary
+      - name: Cached build of Terni (pinned in native/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/native
+          key: native-${{ runner.os }}-${{ hashFiles('native/CMakeLists.txt') }}
+          restore-keys: native-${{ runner.os }}-
       - name: Build Terni
         run: flax/build-native.sh
       # Play mode opens a window even in a headless editor: an X server without a screen.
@@ -329,6 +359,12 @@ jobs:
           vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cached build of Terni (pinned in native/CMakeLists.txt)
+        uses: actions/cache@v4
+        with:
+          path: build/native
+          key: native-${{ runner.os }}-${{ hashFiles('native/CMakeLists.txt') }}
+          restore-keys: native-${{ runner.os }}-
       - name: Build Terni for the plugin
         shell: cmd
         env:
