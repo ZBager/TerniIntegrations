@@ -119,6 +119,9 @@ Flax 1.13:
   crashes in Flax's shutdown; the self-test waits 30 frames.
 - Cooked Linux games get all-zero Vulkan device IDs from Flax, hence the vendor-and-name
   fallback in `renderer_gpu.cpp`.
+- Flax uses the newest .NET SDK it finds. With the .NET 11 SDK, the 1.13 editor compiles
+  the scripts again in play mode and fails an assertion as it reloads them: point
+  `DOTNET_ROOT` (and `PATH`) at a .NET 10 install of its own, as CI does.
 
 Godot 4.5+ (godot-cpp `godot-4.5-stable`):
 - No global variables of Godot types (`String`, `NodePath`, ...) in extension code: they

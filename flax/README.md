@@ -23,6 +23,11 @@ Made for Flax 1.13. Tested on Linux and Windows, in the editor and in cooked gam
 4. In your game module's `Game.Build.cs`: `options.PublicDependencies.Add("Terni");`
 5. Open the project. The editor builds the plugin with your scripts.
 
+Flax 1.13 uses the newest .NET SDK it finds, and with the .NET 11 SDK installed its
+editor fails as it reloads scripts in play mode. With .NET 11 on the machine, install
+.NET 10 in a folder of its own and start the editor with `DOTNET_ROOT` and `PATH`
+pointing there.
+
 ## Use
 
 Put your game folder (schema, common, history, rules; see Terni's

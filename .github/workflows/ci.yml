@@ -211,7 +211,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build clang libvulkan-dev glslc libshaderc-dev \
             mesa-vulkan-drivers vulkan-tools libxrandr2 libxi6 zlib1g-dev libx11-dev libxcursor-dev \
             libxinerama-dev libxfixes-dev libwayland-dev libglib2.0-dev xvfb
+      # Flax 1.13 takes the newest .NET SDK it finds, and with the runner's .NET 11 its
+      # editor compiles the scripts again in play mode and fails as it reloads them.
+      # .NET 10 in a folder of its own, named by DOTNET_ROOT, is the one it uses then.
       - uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet10
         with:
           dotnet-version: 10.0.x
       - id: flax-cache

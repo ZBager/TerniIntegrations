@@ -16,11 +16,12 @@ apt-get update
 apt-get install -y --no-install-recommends ca-certificates git curl cmake g++ python3 unzip xz-utils sudo file libicu74
 # flax-linux: Install packages
 apt-get install -y --no-install-recommends ninja-build clang libvulkan-dev glslc libshaderc-dev mesa-vulkan-drivers vulkan-tools libxrandr2 libxi6 zlib1g-dev libx11-dev libxcursor-dev libxinerama-dev libxfixes-dev libwayland-dev libglib2.0-dev xvfb xauth
-# actions/setup-dotnet with 10.0.x
+# The runner's own .NET 11, then actions/setup-dotnet with 10.0.x in a folder of its own
 curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet > /dev/null
+bash /tmp/dotnet-install.sh --channel 11.0 --install-dir /usr/share/dotnet > /dev/null
 ln -sf /usr/share/dotnet/dotnet /usr/bin/dotnet
-export DOTNET_ROOT=/usr/share/dotnet
+bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /opt/dotnet10 > /dev/null
+export DOTNET_ROOT=/opt/dotnet10 PATH=/opt/dotnet10:$PATH
 
 git config --global --add safe.directory /src   # /src belongs to another user
 rm -rf /work && mkdir /work && cd /src && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t /work

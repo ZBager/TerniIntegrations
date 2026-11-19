@@ -41,15 +41,18 @@ set LLVM_BUILD=%ROOT%\llvm-build
 if not exist "%LLVM_SRC%\libc" (
     call :fetch https://github.com/llvm/llvm-project/releases/download/llvmorg-%LLVM_VERSION%/llvm-project-%LLVM_VERSION%.src.tar.xz %LLVM_SHA256% || exit /b 1
     rem The parts an LLVM build reads; mlgo-utils has symbolic links, which need rights to make.
-    tar -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" --exclude "*/mlgo-utils/*" llvm-project-%LLVM_VERSION%.src/llvm llvm-project-%LLVM_VERSION%.src/cmake llvm-project-%LLVM_VERSION%.src/third-party llvm-project-%LLVM_VERSION%.src/libc || exit /b 1
+    echo unpacking LLVM
+    tar -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" --exclude "*/mlgo-utils/*" llvm-project-%LLVM_VERSION%.src/llvm llvm-project-%LLVM_VERSION%.src/cmake llvm-project-%LLVM_VERSION%.src/third-party llvm-project-%LLVM_VERSION%.src/libc < nul || exit /b 1
 )
+echo configuring LLVM
 cmake -S "%LLVM_SRC%\llvm" -B "%LLVM_BUILD%" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
     -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_PROJECTS= -DLLVM_ENABLE_RUNTIMES= ^
     -DLLVM_BUILD_TOOLS=OFF -DLLVM_BUILD_UTILS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF ^
     -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_ENABLE_BINDINGS=OFF ^
     -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_LIBEDIT=OFF ^
     -DLLVM_ENABLE_LIBPFM=OFF -DLLVM_ENABLE_CURL=OFF -DLLVM_ENABLE_HTTPLIB=OFF -DLLVM_ENABLE_FFI=OFF ^
-    -DLLVM_ENABLE_Z3_SOLVER=OFF -DLLVM_ENABLE_DIA_SDK=OFF -DLLVM_ENABLE_RTTI=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF > nul || exit /b 1
+    -DLLVM_ENABLE_Z3_SOLVER=OFF -DLLVM_ENABLE_DIA_SDK=OFF -DLLVM_ENABLE_RTTI=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF || exit /b 1
+echo building LLVM
 cmake --build "%LLVM_BUILD%" --target llvm-libraries llvm-config || exit /b 1
 
 rem ---- Mesa: lavapipe alone ----
@@ -57,7 +60,8 @@ set MESA_SRC=%ROOT%\src\mesa-%MESA_VERSION%
 set MESA_BUILD=%ROOT%\mesa-build
 if not exist "%MESA_SRC%" (
     call :fetch https://archive.mesa3d.org/mesa-%MESA_VERSION%.tar.xz %MESA_SHA256% || exit /b 1
-    tar -xf "%ROOT%\downloads\mesa-%MESA_VERSION%.tar.xz" -C "%ROOT%\src" || exit /b 1
+    echo unpacking Mesa
+    tar -xf "%ROOT%\downloads\mesa-%MESA_VERSION%.tar.xz" -C "%ROOT%\src" < nul || exit /b 1
 )
 set LLVM_CONFIG=%LLVM_BUILD:\=/%/bin/llvm-config.exe
 > "%ROOT%\llvm.ini" echo [binaries]
@@ -91,7 +95,10 @@ if not exist "%FILE%" (
     curl -fL --retry 3 -o "%FILE%.part" %1 || exit /b 1
     move /y "%FILE%.part" "%FILE%" > nul
 )
+rem certutil prints a line naming the file, the hash, and a line saying it is done.
+echo checking %FILE%
 set HASH=
-for /f "usebackq tokens=*" %%h in (`powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 '%FILE%').Hash"`) do set HASH=%%h
-if /i not "%HASH%"=="%2" (echo %FILE% does not match its checksum & exit /b 1)
+for /f "skip=1 delims=" %%h in ('certutil -hashfile "%FILE%" SHA256 ^< nul') do if not defined HASH set HASH=%%h
+set HASH=%HASH: =%
+if /i not "%HASH%"=="%2" (echo %FILE% does not match its checksum: %HASH% & exit /b 1)
 exit /b 0
