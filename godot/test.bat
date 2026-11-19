@@ -10,11 +10,20 @@ rem   test.bat window     in a window, so the renderer's GPU is checked too; mor
 rem                       go to Godot: test.bat window --rendering-driver d3d12
 rem   set GODOT_MONO=C:\path\to\Godot_v4.7.2-stable_mono_win64.exe
 rem   test.bat csharp     the C# example, headless
+rem   test.bat nogpu [mode]   either of the above as on a machine whose Vulkan drivers give
+rem                       no device: the system's drivers are hidden, and the software
+rem                       driver shipped with the addon must be added and used
 setlocal
 cd /d "%~dp0"
 set RESULT=%TEMP%\terni_godot_test.txt
 del "%RESULT%" 2>nul
 set TERNI_EXAMPLE_TEST=%RESULT%
+if /i "%1"=="nogpu" (
+    set VK_DRIVER_FILES=%TEMP%\terni-no-driver.json
+    set VK_ICD_FILENAMES=%TEMP%\terni-no-driver.json
+    set TERNI_EXPECT_SOFTWARE_DRIVER=1
+    shift
+)
 if /i "%1"=="csharp" goto csharp
 if "%GODOT%"=="" (echo Set GODOT to the Godot program & exit /b 2)
 cd example

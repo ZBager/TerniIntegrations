@@ -76,11 +76,26 @@ flax/test.sh --no-gpu [mode]                             # (same FLAX_EDITOR; Fl
 - `build/godot-templates*` hold only the Linux x86_64 export templates from the
   official archives.
 - Windows: `flax\build-native.bat`, `flax\test.bat [reload|visual]`, `godot\build.bat`,
-  `godot\test.bat [window <godot args>|csharp]`. The owner runs these on a separate
+  `godot\test.bat [nogpu] [window <godot args>|csharp]`. The owner runs these on a separate
   Windows machine; give exact commands, and for editor commands typed at the prompt use
   `start /wait "" "%EXE%" ...` (cmd does not wait for GUI programs otherwise).
 - A change is done when the tests pass on every device here, and, for anything that
   touches Windows code paths, when the owner has run the Windows tests.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` builds both plugins and runs their tests on Linux and
+Windows runners, which have no GPU: everything runs on lavapipe. The software driver is
+built once per version of `native/lavapipe/build.sh` (and `build.bat`) and cached. The
+Flax editor for Linux comes from flaxengine.com (pinned package and checksums); the
+Windows editor comes only through Flax's launcher, so Windows builds Terni for Flax only.
+
+Try a Linux job in a clean container before pushing (`.github/replay/`, usage at the top
+of each script; `build/ci-replay` gets the results). What the runners lacked:
+- The Flax editor needs X11 and GLib libraries even headless, game code links against
+  their development packages (and zlib's and Wayland's), and play mode (`-play`) opens a
+  window: `xvfb-run`.
+- git refuses a repository that another user owns (`safe.directory`), as in a container.
 
 ## Moving the Terni pin
 

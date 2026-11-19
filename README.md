@@ -1,5 +1,7 @@
 # Terni integrations
 
+[![CI](https://github.com/ZBager/TerniIntegrations/actions/workflows/ci.yml/badge.svg)](https://github.com/ZBager/TerniIntegrations/actions/workflows/ci.yml)
+
 Plugins that let a game use [Terni](https://github.com/ZBager/Terni) through a game
 engine's own scripting and editor, without touching Vulkan or Terni's C++ API. Terni
 runs the tick of a strategy game as compute shaders, with the same results on every

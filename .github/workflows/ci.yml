@@ -1,0 +1,275 @@
+# SPDX-License-Identifier: LGPL-2.1-only WITH AdditionRef-Terni-linking-exception
+# Copyright (C) 2026 Rafał Zając
+#
+# Builds the plugins and runs their self-tests on Linux and Windows. No runner has a GPU:
+# the tests run on lavapipe, Mesa's Vulkan driver for the CPU, which is a device like any
+# other (the self-tests check the galaxy example's state hash on every device). The
+# software driver the plugins ship (native/lavapipe) is built once per version of its
+# build script and cached: LLVM takes long.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VULKAN_SDK_VERSION: 1.4.363.1
+  GODOT_VERSION: 4.7.2
+  FLAX_PACKAGE: Package_1_13_07014
+
+jobs:
+  # ---- the software Vulkan driver the plugins ship ----
+
+  lavapipe-linux:
+    name: Software driver (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/lavapipe/libvulkan_lvp.so
+            build/lavapipe/licences
+          key: lavapipe-linux-${{ hashFiles('native/lavapipe/build.sh') }}
+      - name: Install packages
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build bison flex glslang-tools python3-venv
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install meson mako pyyaml packaging
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Build (LLVM and Mesa)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: native/lavapipe/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavapipe-linux
+          path: build/lavapipe/libvulkan_lvp.so
+
+  lavapipe-windows:
+    name: Software driver (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/lavapipe/vulkan_lvp.dll
+            build/lavapipe/licences
+          key: lavapipe-windows-${{ hashFiles('native/lavapipe/build.bat') }}
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.12'
+      - name: Install tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          choco install -y --no-progress winflexbison3 ninja
+          python -m pip install meson mako pyyaml packaging
+      - name: Build (LLVM and Mesa)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: native\lavapipe\build.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavapipe-windows
+          path: build/lavapipe/vulkan_lvp.dll
+
+  # ---- Godot ----
+
+  godot-linux:
+    name: Godot (Linux)
+    needs: lavapipe-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lavapipe-linux
+          path: build/lavapipe
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libvulkan-dev glslc libshaderc-dev \
+            mesa-vulkan-drivers vulkan-tools
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Godot and Godot .NET
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/$GODOT_VERSION-stable
+          mkdir -p "$RUNNER_TEMP/godot" && cd "$RUNNER_TEMP/godot"
+          curl -fsSL -o godot.zip "$base/Godot_v$GODOT_VERSION-stable_linux.x86_64.zip"
+          curl -fsSL -o mono.zip "$base/Godot_v$GODOT_VERSION-stable_mono_linux_x86_64.zip"
+          sha256sum -c <<EOF
+          cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip
+          129f82db7bafd54ae14bb5bb284041c73860e8c7a009a3a026ca5e946cbff247  mono.zip
+          EOF
+          unzip -q godot.zip && unzip -q mono.zip
+          echo "GODOT=$PWD/Godot_v$GODOT_VERSION-stable_linux.x86_64" >> "$GITHUB_ENV"
+          echo "GODOT_MONO=$PWD/Godot_v$GODOT_VERSION-stable_mono_linux_x86_64/Godot_v$GODOT_VERSION-stable_mono_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Vulkan devices
+        run: vulkaninfo --summary
+      - name: Build
+        run: godot/build.sh
+      - name: Test (GDScript)
+        run: godot/test.sh
+      - name: Test (C#)
+        run: godot/test.sh --csharp
+      - name: Test without a GPU (GDScript, the shipped software driver)
+        run: godot/test.sh --no-gpu
+      - name: Test without a GPU (C#)
+        run: godot/test.sh --no-gpu --csharp
+
+  godot-windows:
+    name: Godot (Windows)
+    needs: lavapipe-windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lavapipe-windows
+          path: build/lavapipe
+      - name: Install the Vulkan SDK and lavapipe
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
+          install_runtime: true
+          install_lavapipe: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Put the Vulkan SDK and the Vulkan loader on PATH
+        shell: pwsh
+        run: |
+          "$env:VULKAN_SDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$env:VULKAN_SDK\runtime\x64" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Godot and Godot .NET
+        shell: pwsh
+        run: |
+          $base = "https://github.com/godotengine/godot/releases/download/$env:GODOT_VERSION-stable"
+          $dir = "$env:RUNNER_TEMP\godot"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest "$base/Godot_v$env:GODOT_VERSION-stable_win64.exe.zip" -OutFile "$dir\godot.zip"
+          Invoke-WebRequest "$base/Godot_v$env:GODOT_VERSION-stable_mono_win64.zip" -OutFile "$dir\mono.zip"
+          if ((Get-FileHash "$dir\godot.zip").Hash -ne "731980F9608D61333E5BAF54A2EF17210ACC7A538446C0CB9969F002ACA1E953") { throw "godot.zip does not match its checksum" }
+          if ((Get-FileHash "$dir\mono.zip").Hash -ne "A2A48473A7414C5F19FAB690518CAEBB738C09EF9601F6BD2388676A7F53B3C0") { throw "mono.zip does not match its checksum" }
+          Expand-Archive "$dir\godot.zip" $dir
+          Expand-Archive "$dir\mono.zip" $dir
+          # The console builds: they wait for the game and print its output.
+          "GODOT=$dir\Godot_v$env:GODOT_VERSION-stable_win64_console.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GODOT_MONO=$dir\Godot_v$env:GODOT_VERSION-stable_mono_win64\Godot_v$env:GODOT_VERSION-stable_mono_win64_console.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build
+        shell: cmd
+        run: godot\build.bat
+      - name: Test (GDScript)
+        shell: cmd
+        run: godot\test.bat
+      - name: Test (C#)
+        shell: cmd
+        run: godot\test.bat csharp
+      - name: Test without a GPU (GDScript, the shipped software driver)
+        shell: cmd
+        run: godot\test.bat nogpu
+
+  # ---- Flax ----
+
+  flax-linux:
+    name: Flax (Linux)
+    needs: lavapipe-linux
+    runs-on: ubuntu-24.04
+    env:
+      FLAX_EDITOR: ${{ github.workspace }}/build/FlaxEditor/Binaries/Editor/Linux/Development/FlaxEditor
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: lavapipe-linux
+          path: build/lavapipe
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          # The editor needs X11 and GLib libraries even when headless, and game code links
+          # against them (and zlib and Wayland).
+          sudo apt-get install -y --no-install-recommends ninja-build clang libvulkan-dev glslc libshaderc-dev \
+            mesa-vulkan-drivers vulkan-tools libxrandr2 libxi6 zlib1g-dev libx11-dev libxcursor-dev \
+            libxinerama-dev libxfixes-dev libwayland-dev libglib2.0-dev xvfb
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - id: flax-cache
+        uses: actions/cache@v4
+        with:
+          path: build/FlaxEditor
+          key: flax-editor-${{ env.FLAX_PACKAGE }}
+      - name: Flax editor and its Linux platform tools
+        if: steps.flax-cache.outputs.cache-hit != 'true'
+        run: |
+          base=https://vps3.flaxengine.com/store/builds/$FLAX_PACKAGE
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o editor.zip "$base/FlaxEditorLinux.zip"
+          curl -fsSL -o linux.zip "$base/Linux.zip"
+          sha256sum -c <<EOF
+          accc1057101870398d776faf653cd5f0541f4a716e2c502f937401d7e1345dac  editor.zip
+          f6a4743fc81b3f7b82493bf02deb174944a4fb6b363db891ea34837c6df08875  linux.zip
+          EOF
+          mkdir -p "$GITHUB_WORKSPACE/build/FlaxEditor/Source/Platforms/Linux"
+          unzip -q editor.zip -d "$GITHUB_WORKSPACE/build/FlaxEditor"
+          unzip -q linux.zip -d "$GITHUB_WORKSPACE/build/FlaxEditor/Source/Platforms/Linux"
+      - name: Vulkan devices
+        run: vulkaninfo --summary
+      - name: Build Terni
+        run: flax/build-native.sh
+      # Play mode opens a window even in a headless editor: an X server without a screen.
+      - name: Test in the editor
+        run: xvfb-run -a flax/test.sh
+      - name: Test visual scripts
+        run: flax/test.sh --visual
+      - name: Test a script reload
+        run: flax/test.sh --reload
+      - name: Test a cooked game
+        run: flax/test.sh --cooked
+      - name: Test without a GPU (the shipped software driver)
+        run: xvfb-run -a flax/test.sh --no-gpu
+      - name: Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flax-logs
+          path: flax/Example/Logs
+
+  flax-windows:
+    # The Flax editor for Windows comes only through its launcher: Terni is built for
+    # the plugin, which the editor itself would compile.
+    name: Flax (Windows, Terni only)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Terni for the plugin
+        shell: cmd
+        env:
+          TERNI_SOFTWARE_DRIVER: none
+        run: flax\build-native.bat
