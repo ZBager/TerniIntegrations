@@ -176,13 +176,15 @@ jobs:
         with:
           name: lavapipe-windows
           path: build/lavapipe
-      - name: Install the Vulkan SDK and lavapipe
+      # Not from the action's cache: its key does not say whether the runtime (the Vulkan
+      # loader) was installed, and the other Windows jobs cache the SDK without it.
+      - name: Install the Vulkan SDK, its runtime and lavapipe
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
           install_runtime: true
           install_lavapipe: true
-          cache: true
+          cache: false
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Put the Vulkan SDK and the Vulkan loader on PATH
         shell: pwsh
