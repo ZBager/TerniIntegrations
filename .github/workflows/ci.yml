@@ -189,6 +189,15 @@ jobs:
         run: |
           "$env:VULKAN_SDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "$env:VULKAN_SDK\runtime\x64" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      # Godot loads extensions without searching PATH, so the Vulkan loader goes where a GPU
+      # driver puts it on a player's machine.
+      - name: The Vulkan loader in System32, as GPU drivers install it
+        shell: pwsh
+        run: |
+          $loader = Get-ChildItem -Recurse -Filter vulkan-1.dll $env:VULKAN_SDK | Select-Object -First 1
+          if (-not $loader) { throw "vulkan-1.dll is not in the Vulkan SDK" }
+          Write-Output "copying $($loader.FullName)"
+          Copy-Item $loader.FullName "$env:SystemRoot\System32\"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -210,13 +219,18 @@ jobs:
       - name: Build
         shell: cmd
         run: godot\build.bat
+      # A game that cannot run the self-test (the extension did not load) runs until it is
+      # stopped: give each test a limit.
       - name: Test (GDScript)
+        timeout-minutes: 15
         shell: cmd
         run: godot\test.bat
       - name: Test (C#)
+        timeout-minutes: 15
         shell: cmd
         run: godot\test.bat csharp
       - name: Test without a GPU (GDScript, the shipped software driver)
+        timeout-minutes: 15
         shell: cmd
         run: godot\test.bat nogpu
 
