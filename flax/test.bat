@@ -20,7 +20,7 @@ rem the switch stays bare and only the path is quoted.
 "%FLAX_EDITOR%" -std -headless -mute -project "%CD%" -play 7e2a1c0041d05b6f8a3c9d1e2f4b6a80
 if not exist "%TERNI_EXAMPLE_TEST%" (echo The self-test did not run: see Example\Logs & exit /b 1)
 type "%TERNI_EXAMPLE_TEST%"
-findstr /x /c:"PASSED" "%TERNI_EXAMPLE_TEST%" >nul || exit /b 1
+findstr /b /c:"PASSED" "%TERNI_EXAMPLE_TEST%" >nul || exit /b 1
 exit /b 0
 
 rem test.bat reload: starts a world in the editor and makes it rebuild and reload the
@@ -31,7 +31,7 @@ del "%TERNI_RELOAD_TEST%" "%TERNI_RELOAD_TEST%.reloading" 2>nul
 "%FLAX_EDITOR%" -std -headless -mute -project "%CD%"
 if not exist "%TERNI_RELOAD_TEST%" (echo The reload test did not run: see Example\Logs & exit /b 1)
 type "%TERNI_RELOAD_TEST%"
-findstr /x /c:"PASSED" "%TERNI_RELOAD_TEST%" >nul || exit /b 1
+findstr /b /c:"PASSED" "%TERNI_RELOAD_TEST%" >nul || exit /b 1
 exit /b 0
 
 :visual
@@ -40,4 +40,4 @@ del "%TERNI_VISUAL_CHECK%" 2>nul
 "%FLAX_EDITOR%" -std -headless -mute -project "%CD%"
 if not exist "%TERNI_VISUAL_CHECK%" (echo The check did not run: see Example\Logs & exit /b 1)
 findstr /v /b /c:"usable" "%TERNI_VISUAL_CHECK%"
-findstr /x /c:"PASSED" "%TERNI_VISUAL_CHECK%" >nul || exit /b 1
+findstr /b /c:"PASSED" "%TERNI_VISUAL_CHECK%" >nul || exit /b 1

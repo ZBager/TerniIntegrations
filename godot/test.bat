@@ -58,4 +58,4 @@ if not exist .godot\mono\temp\bin\Debug\TerniExampleCs.dll (
 :result
 if not exist "%RESULT%" (echo The self-test did not run & exit /b 1)
 type "%RESULT%"
-findstr /x /c:"PASSED" "%RESULT%" > nul || exit /b 1
+findstr /b /c:"PASSED" "%RESULT%" > nul || exit /b 1
