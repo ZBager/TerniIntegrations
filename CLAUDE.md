@@ -86,7 +86,8 @@ flax/test.sh --no-gpu [mode]                             # (same FLAX_EDITOR; Fl
 
 `.github/workflows/ci.yml` builds both plugins and runs their tests on Linux and
 Windows runners, which have no GPU: everything runs on lavapipe. The software driver is
-built once per version of `native/lavapipe/build.sh` (and `build.bat`) and cached. The
+built once per version of `native/lavapipe/build.sh` (and `build.bat`) and cached, as
+are the builds of Terni and godot-cpp (`build/native`, `build/godot`). The
 Flax editor for Linux comes from flaxengine.com (pinned package and checksums); the
 Windows editor comes only through Flax's launcher, so Windows builds Terni for Flax only.
 
@@ -96,6 +97,22 @@ of each script; `build/ci-replay` gets the results). What the runners lacked:
   their development packages (and zlib's and Wayland's), and play mode (`-play`) opens a
   window: `xvfb-run`.
 - git refuses a repository that another user owns (`safe.directory`), as in a container.
+
+What the Windows runners taught (each was a failed or stuck run):
+- `tar.exe` hung on the LLVM sources without a word: `build.bat` unpacks with
+  `native/lavapipe/unpack.py`. LLVM's tests are 68,000 of its 89,000 files and are left out.
+- Godot loads extension libraries without searching `PATH`: `vulkan-1.dll` must be in
+  `System32`, where GPU drivers put it. The Vulkan SDK action's cache does not record
+  whether its runtime was installed, so the Godot job installs without that cache.
+- The Vulkan loader ignores `VK_DRIVER_FILES` in an elevated process (CI steps are):
+  the no-GPU step deletes the drivers' registry key instead.
+- `findstr /x` only sees a line end at CR LF; Godot writes LF: use `findstr /b`.
+- Godot builds C# with `dotnet build` and waits for its output to end; MSBuild's reused
+  worker processes keep it open: `MSBUILDDISABLENODEREUSE=1`.
+- A game that cannot run its self-test runs until stopped: every Windows test step has
+  `timeout-minutes`. GitHub shows no log of a running job; `gh api
+  repos/<owner>/<repo>/actions/jobs/<id>/logs` gives a finished job's log while the
+  run goes on.
 
 ## Moving the Terni pin
 
