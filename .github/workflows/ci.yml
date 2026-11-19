@@ -231,6 +231,15 @@ jobs:
         timeout-minutes: 15
         shell: cmd
         run: godot\test.bat csharp
+      # The Vulkan loader ignores VK_DRIVER_FILES in an elevated process, which CI steps
+      # are: the runner's lavapipe is taken out of the registry instead (the last step).
+      - name: No Vulkan driver on the machine
+        shell: pwsh
+        run: |
+          $key = "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers"
+          if (Test-Path $key) {
+            (Get-Item $key).Property | ForEach-Object { Write-Output "removing $_"; Remove-ItemProperty -Path $key -Name $_ }
+          }
       - name: Test without a GPU (GDScript, the shipped software driver)
         timeout-minutes: 15
         shell: cmd

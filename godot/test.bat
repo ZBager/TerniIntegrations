@@ -12,7 +12,8 @@ rem   set GODOT_MONO=C:\path\to\Godot_v4.7.2-stable_mono_win64.exe
 rem   test.bat csharp     the C# example, headless
 rem   test.bat nogpu [mode]   either of the above as on a machine whose Vulkan drivers give
 rem                       no device: the system's drivers are hidden, and the software
-rem                       driver shipped with the addon must be added and used
+rem                       driver shipped with the addon must be added and used. Not in an
+rem                       elevated prompt: the Vulkan loader then ignores VK_DRIVER_FILES
 setlocal
 cd /d "%~dp0"
 set RESULT=%TEMP%\terni_godot_test.txt
