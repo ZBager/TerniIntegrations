@@ -38,11 +38,19 @@ if errorlevel 1 (
 rem ---- LLVM: static libraries for the x86 CPU only, no tools but llvm-config ----
 set LLVM_SRC=%ROOT%\src\llvm-project-%LLVM_VERSION%.src
 set LLVM_BUILD=%ROOT%\llvm-build
+set P=llvm-project-%LLVM_VERSION%.src
+set M=%P%/llvm/utils/mlgo-utils
 if not exist "%LLVM_SRC%\libc" (
     call :fetch https://github.com/llvm/llvm-project/releases/download/llvmorg-%LLVM_VERSION%/llvm-project-%LLVM_VERSION%.src.tar.xz %LLVM_SHA256% || exit /b 1
-    rem The parts an LLVM build reads; mlgo-utils has symbolic links, which need rights to make.
+    rem The parts an LLVM build reads, without its tests and documentation: writing many
+    rem small files is slow on Windows (the tests alone are 68,000 of 89,000), and three
+    rem files in mlgo-utils are symbolic links, which need rights to make.
     echo unpacking LLVM
-    tar -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" --exclude "*/mlgo-utils/*" llvm-project-%LLVM_VERSION%.src/llvm llvm-project-%LLVM_VERSION%.src/cmake llvm-project-%LLVM_VERSION%.src/third-party llvm-project-%LLVM_VERSION%.src/libc < nul || exit /b 1
+    tar -xf "%ROOT%\downloads\llvm-project-%LLVM_VERSION%.src.tar.xz" -C "%ROOT%\src" ^
+        --exclude "%M%/combine_training_corpus.py" --exclude "%M%/extract_ir.py" --exclude "%M%/make_corpus.py" ^
+        --exclude "%P%/llvm/test" --exclude "%P%/llvm/unittests" --exclude "%P%/llvm/docs" --exclude "%P%/llvm/utils/gn" ^
+        --exclude "%P%/libc/test" --exclude "%P%/libc/docs" --exclude "%P%/libc/benchmarks" --exclude "%P%/libc/fuzzing" ^
+        %P%/llvm %P%/cmake %P%/third-party %P%/libc < nul || exit /b 1
 )
 echo configuring LLVM
 cmake -S "%LLVM_SRC%\llvm" -B "%LLVM_BUILD%" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
