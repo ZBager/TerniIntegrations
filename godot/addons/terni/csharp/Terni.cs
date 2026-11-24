@@ -105,6 +105,9 @@ namespace Terni
         /// <summary>Never compile rules: every rule must be in the cache.</summary>
         public bool CacheOnly;
         public bool Validation;
+        /// <summary>Waits for a tick spin for up to this many microseconds before they sleep: worth it
+        /// only for ticks well under a millisecond, and it keeps a CPU core busy. 0: they sleep at once.</summary>
+        public int SpinMicroseconds;
 
         internal GDDictionary ToGodot()
         {
@@ -112,6 +115,7 @@ namespace Terni
             {
                 ["ignore_renderer"] = IgnoreRenderer, ["preference"] = (int)Preference,
                 ["cache_folder"] = CacheFolder, ["cache_only"] = CacheOnly, ["validation"] = Validation,
+                ["spin_us"] = SpinMicroseconds,
             };
             if (Device >= 0)
                 d["device"] = Device;

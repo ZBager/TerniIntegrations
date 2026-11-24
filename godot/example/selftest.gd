@@ -139,6 +139,18 @@ static func run(folder: String, result_file: String, parent: Node) -> bool:
 	check(eager.load(folder) and eager.begin_start() and eager.tick() and eager.get_ticks() == 1, "a tick right after begin_start waits for the start")
 	eager.stop()
 
+	# Waits that spin change how long a tick's results take to arrive, never the results.
+	var spinning := TerniWorld.new()
+	check(spinning.load(folder) and spinning.start({"spin_us": 200}), "a world starts with spin_us")
+	for t in 200:
+		spinning.tick()
+	check(hex(spinning.get_state_hash()) == EXPECTED, "waits that spin: the same state hash")
+	spinning.stop()
+	var spinning_node := TerniSimulation.new()
+	spinning_node.spin_us = 200
+	check(spinning_node.spin_us == 200, "the node has spin_us")
+	spinning_node.free()
+
 	var missing := TerniWorld.new()
 	check(not missing.load(folder + "_missing") and not missing.get_last_error().is_empty(), "a missing folder is an error")
 	check(not missing.load(folder, [MOD + "_missing"]) and not missing.get_last_error().is_empty(), "a missing mod folder is an error")

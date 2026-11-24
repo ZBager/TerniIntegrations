@@ -370,7 +370,7 @@ bool TerniWorld::set_capacity(int64_t entity, int64_t rows) {
 // Options (all optional): device (int: run on this device; otherwise choose), ignore_renderer
 // (bool: do not prefer the renderer's GPU), preference (DevicePreference), cache_folder
 // (String; default: "spirv" in the game folder), cache_only (bool: never compile rules),
-// validation (bool).
+// validation (bool), spin_us (int: waits for a tick spin this many microseconds before they sleep).
 TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
     add_shipped_driver();
     if (!bridge()->loaded()) {
@@ -390,6 +390,7 @@ TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
     job->options.cache_dir = to_std(job->cache);
     job->options.cache_only = bool(options.get("cache_only", false));
     job->options.validation = bool(options.get("validation", false));
+    job->options.spin_us = static_cast<uint32_t>(std::max(to_int(options.get("spin_us", 0)), 0));
     job->cache_first = !job->options.cache_only && !terni_bridge::can_compile_rules();
     if (!use_device && !bool(options.get("ignore_renderer", false))) {
         job->match_renderer = true;

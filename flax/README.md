@@ -108,7 +108,10 @@ matters to multiplayer.
 
 `TerniStartOptions` (for `TerniWorld.Start`) is all zeros by default, so `new
 TerniStartOptions()` in C# means the same: `UseDevice` with `Device` names a device,
-`IgnoreRenderer` skips the renderer's GPU, `CacheOnly` never compiles rules.
+`IgnoreRenderer` skips the renderer's GPU, `CacheOnly` never compiles rules,
+`SpinMicroseconds` lets waits for a tick spin for that long before they sleep (Terni's
+[Embedding](https://github.com/ZBager/Terni/blob/main/docs/embedding.md#waiting-for-small-ticks)
+says when that is worth it).
 
 ### Visual Scripting
 

@@ -30,6 +30,7 @@ struct StartOptions {
     std::string cache_dir;
     bool cache_only = true;
     bool validation = false;
+    uint32_t spin_us = 0;  // waits for a tick spin this long before they sleep (GameSimOptions::spin_us)
 };
 
 struct Modifier {

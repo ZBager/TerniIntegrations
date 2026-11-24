@@ -60,7 +60,10 @@ mods)`, `start(options)` / `begin_start(options)`, `tick` / `begin_tick` / `tick
 `move_to_device`. Calls that return `bool` return true when they worked; after false,
 `get_last_error()` says why, and the error is also pushed to the debugger. Start
 options are a dictionary: `device`, `ignore_renderer`, `preference`, `cache_folder`,
-`cache_only`, `validation`. Each device in `get_devices()` has `robustness`: what a
+`cache_only`, `validation`, and `spin_us`, which lets waits for a tick spin for that many
+microseconds before they sleep (Terni's
+[Embedding](https://github.com/ZBager/Terni/blob/main/docs/embedding.md#waiting-for-small-ticks)
+says when that is worth it; the node has it as **Spin Us**). Each device in `get_devices()` has `robustness`: what a
 rule that reads or writes past the end of a field does there (`ROBUSTNESS_DEFINED`, on
 every current desktop driver: reads give 0 and writes are dropped, the same everywhere).
 

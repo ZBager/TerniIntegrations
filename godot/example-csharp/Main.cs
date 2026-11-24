@@ -144,6 +144,14 @@ public partial class Main : Control
             Check(calls == 1, $"events can be removed ({calls} call)");
             simulationNode.Free();
 
+            // Waits that spin change how long a tick's results take to arrive, never the results.
+            var spinning = new TerniWorld();
+            Check(spinning.Load("res://Galaxy") && spinning.Start(new TerniStartOptions { SpinMicroseconds = 200 }), "a world starts with SpinMicroseconds");
+            for (var t = 0; t < 200; t++)
+                spinning.Tick();
+            Check(spinning.GetStateHash() == Expected, "waits that spin: the same state hash");
+            spinning.Stop();
+
             // A lost device, simulated.
             var lost = new TerniWorld();
             var signalled = 0;

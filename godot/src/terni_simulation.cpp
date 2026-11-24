@@ -114,6 +114,7 @@ bool TerniSimulation::start_world() {
     options["preference"] = preference_;
     options["cache_folder"] = cache_folder_;
     options["cache_only"] = !compile_rules_;
+    options["spin_us"] = spin_us_;
     bool ok = world_->load(game_folder_, mod_folders_);
     if (ok) ok = start_in_background_ ? world_->begin_start(options) : world_->start(options);
     if (!ok) {
@@ -284,6 +285,7 @@ void TerniSimulation::_bind_methods() {
     TERNI_PROPERTY(match_renderer, PropertyInfo(Variant::BOOL, "match_renderer"));
     TERNI_PROPERTY(preference, PropertyInfo(Variant::INT, "preference", PROPERTY_HINT_ENUM, "Discrete,Integrated,CPU"));
     TERNI_PROPERTY(compile_rules, PropertyInfo(Variant::BOOL, "compile_rules"));
+    TERNI_PROPERTY(spin_us, PropertyInfo(Variant::INT, "spin_us", PROPERTY_HINT_RANGE, "0,10000,suffix:us"));
 #undef TERNI_PROPERTY
 
     ADD_SIGNAL(MethodInfo("started"));

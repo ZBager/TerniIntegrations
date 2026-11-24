@@ -148,6 +148,13 @@ API_STRUCT() struct TERNI_API TerniStartOptions
     API_FIELD() bool CacheOnly = false;
     /// <summary>Run Terni's own Vulkan device with the validation layers (slow; for debugging).</summary>
     API_FIELD() bool Validation = false;
+    /// <summary>
+    /// Waits for a tick (Tick, EndTick, and calls that collect one) spin for up to this many
+    /// microseconds before they sleep. It saves the 10 microseconds or so a sleeping thread
+    /// takes to wake, so it is worth it only for ticks well under a millisecond, and it keeps
+    /// a CPU core busy meanwhile. No effect on software devices. 0: waits sleep at once.
+    /// </summary>
+    API_FIELD() int32 SpinMicroseconds = 0;
 };
 
 /// <summary>

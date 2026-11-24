@@ -55,6 +55,8 @@ public:
     int64_t get_preference() const { return preference_; }
     void set_compile_rules(bool v) { compile_rules_ = v; }
     bool get_compile_rules() const { return compile_rules_; }
+    void set_spin_us(int64_t v) { spin_us_ = v; }
+    int64_t get_spin_us() const { return spin_us_; }
 
 protected:
     static void _bind_methods();
@@ -76,6 +78,7 @@ private:
     bool match_renderer_ = true;
     int64_t preference_ = TerniWorld::PREFER_DISCRETE;
     bool compile_rules_ = true;
+    int64_t spin_us_ = 0;
 
     double report_due_ = 0;
     PackedStringArray monitors_;  // Performance custom monitors added for this simulation

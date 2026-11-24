@@ -160,6 +160,15 @@ namespace Game
                 eager.Stop();
                 FlaxEngine.Object.Destroy(eager);
 
+                // Waits that spin change how long a tick's results take to arrive, never the results.
+                var spinning = new TerniWorld();
+                Check(spinning.Load(folder) && spinning.Start(new TerniStartOptions { SpinMicroseconds = 200 }), "a world starts with SpinMicroseconds");
+                for (var t = 0; t < 200; t++)
+                    spinning.Tick();
+                Check(spinning.GetStateHash() == Expected, "waits that spin: the same state hash");
+                spinning.Stop();
+                FlaxEngine.Object.Destroy(spinning);
+
                 // A folder with a mistake reports file:line and does not start.
                 var broken = new TerniWorld();
                 Check(!broken.Load(folder + "_missing") && broken.LastError.Length > 0, "a missing folder is an error");

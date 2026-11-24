@@ -463,6 +463,7 @@ TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
     job->options.cache_dir = ToStd(job->cache);
     job->options.cache_only = options.CacheOnly;
     job->options.validation = options.Validation;
+    job->options.spin_us = (uint32_t)Math::Max(options.SpinMicroseconds, 0);
     job->cacheFirst = !options.CacheOnly && !terni_bridge::can_compile_rules();
     if (!options.UseDevice && !options.IgnoreRenderer)
     {

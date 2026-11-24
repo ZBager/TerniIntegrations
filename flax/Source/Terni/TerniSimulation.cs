@@ -87,6 +87,14 @@ namespace Terni
         public bool StartInBackground = true;
 
         /// <summary>
+        /// Waits for a tick spin for up to this many microseconds before they sleep: worth it only
+        /// for ticks well under a millisecond that the frame waits for (Background off), and it
+        /// keeps a CPU core busy meanwhile. 0: waits sleep at once.
+        /// </summary>
+        [EditorOrder(100), Limit(0, 10000), Tooltip("Waits for a tick spin for up to this many microseconds before they sleep: worth it only for ticks well under a millisecond that the frame waits for (Background off). 0: waits sleep at once.")]
+        public int SpinMicroseconds;
+
+        /// <summary>
         /// Why loading, starting or the last tick failed; empty if nothing failed. Visual
         /// scripts, which cannot bind the events of this script, can check it instead of Failed.
         /// </summary>
@@ -175,6 +183,7 @@ namespace Terni
                 Preference = Preference,
                 CacheFolder = string.IsNullOrEmpty(CacheFolder) ? "" : ResolveFolder(CacheFolder),
                 CacheOnly = !CompileRules,
+                SpinMicroseconds = SpinMicroseconds,
             };
             var mods = Array.ConvertAll(ModFolders ?? Array.Empty<string>(), ResolveFolder);
             var ok = World.LoadWithMods(ResolveFolder(GameFolder), mods);

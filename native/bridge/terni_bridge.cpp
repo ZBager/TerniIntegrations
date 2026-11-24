@@ -243,6 +243,7 @@ bool World::start(const StartOptions& options) {
         o.spirv_cache_dir = options.cache_dir;
         o.cache_only = options.cache_only || !terni::can_compile_rules();
         o.validation = options.validation;
+        o.spin_us = options.spin_us;
         impl_->lost = false;
         impl_->simulate_lost = false;
         impl_->sim = std::make_unique<terni::GameSim>(*impl_->game, o);
