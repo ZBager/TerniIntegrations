@@ -5,9 +5,11 @@
 #include <algorithm>
 #include <exception>
 #include <filesystem>
+#include <locale>
 #include <memory>
 #include <mutex>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 
 #include <terni/game.hpp>
@@ -29,6 +31,7 @@ std::vector<Device> devices(std::string& error) {
             device.index = static_cast<int>(d.index);
             device.name = d.name;
             device.type = d.type;
+            device.driver = d.driver;
             device.why_not = d.why_not;
             device.cpu = d.cpu();
             device.usable = d.usable;
@@ -42,6 +45,20 @@ std::vector<Device> devices(std::string& error) {
 }
 
 bool can_compile_rules() { return terni::can_compile_rules(); }
+
+bool parse_compile_output(const std::string& output, CompileStats& stats) {
+    const size_t at = output.rfind("rules: ");  // "rules: 3 compiled, 0 cached (12.3 ms)"
+    if (at == std::string::npos) return false;
+    std::istringstream in(output.substr(at + 7));
+    in.imbue(std::locale::classic());  // the host's locale may have a decimal comma
+    CompileStats read;
+    std::string compiled, cached;
+    char bracket = 0;
+    in >> read.compiled >> compiled >> read.cached >> cached >> bracket >> read.ms;
+    if (!in || compiled != "compiled," || cached != "cached" || bracket != '(') return false;
+    stats = read;
+    return true;
+}
 
 const char* shipped_driver_name() {
 #ifdef _WIN32
@@ -129,6 +146,7 @@ struct World::Impl {
     int subscriptions = 0;
     bool lost = false;           // the device was lost; the simulation is gone
     std::string lost_reason;
+    CompileStats compiler;       // what the rule compiler did for the last start
     bool simulate_lost = false;  // the next call that uses the device finds it lost
 
     // The device is lost: the simulation can do nothing more, so free it. Terni's
@@ -152,9 +170,36 @@ struct World::Impl {
         const terni::EntityDef* e = entity(entity_index);
         return e && row >= 0 && static_cast<uint32_t>(row) < e->capacity;
     }
+    const terni::FieldDef* field(int entity_index, const std::string& name, size_t& column) const {
+        const terni::EntityDef* e = entity(entity_index);
+        const int index = e ? e->field_index(name) : -1;
+        if (index < 0) return nullptr;
+        column = static_cast<size_t>(index);
+        return &e->fields[column];
+    }
     // Throwing checks, for use inside guard().
     void need_game() const {
         if (!game) throw std::runtime_error("no game is loaded");
+    }
+    terni::Game& need_game_before_start() {
+        need_game();
+        if (sim) throw std::runtime_error("the world is running: the starting state is set before it starts");
+        return *game;
+    }
+    void need_bundle(int index) const {
+        need_game();
+        if (index < 0 || index >= static_cast<int>(game->bundles.size())) throw std::runtime_error("no such bundle");
+    }
+    void need_key(int index) const {
+        need_game();
+        if (index < 0 || index >= static_cast<int>(game->modifier_keys.size()))
+            throw std::runtime_error("no such modifier key");
+    }
+    const terni::FieldDef& need_field(int entity_index, const std::string& name, size_t& column) const {
+        need_entity(entity_index);
+        const terni::FieldDef* f = field(entity_index, name, column);
+        if (!f) throw std::runtime_error("'" + entity(entity_index)->name + "' has no field '" + name + "'");
+        return *f;
     }
     void need_sim() {
         if (!sim && lost)
@@ -233,6 +278,101 @@ bool World::set_capacity(int entity, int rows) {
     });
 }
 
+bool World::set_modifier_capacity(int instances) {
+    return guard(impl_, error_, false, [&] {
+        terni::Game& g = impl_->need_game_before_start();
+        if (instances < 1) throw std::runtime_error("the modifier store needs room for at least one instance");
+        if (static_cast<size_t>(instances) < g.initial_modifiers.size())
+            throw std::runtime_error("the game starts with " + std::to_string(g.initial_modifiers.size()) +
+                                     " modifier instances; " + std::to_string(instances) + " is too few");
+        g.modifier_capacity = static_cast<uint32_t>(instances);
+        return true;
+    });
+}
+
+bool World::set_start_count(int entity, int rows) {
+    return guard(impl_, error_, false, [&] {
+        terni::Game& g = impl_->need_game_before_start();
+        impl_->need_entity(entity);
+        const terni::EntityDef& e = *impl_->entity(entity);
+        if (rows < 0 || static_cast<uint32_t>(rows) > e.capacity)
+            throw std::runtime_error("'" + e.name + "' has room for " + std::to_string(e.capacity) + " rows, not " +
+                                     std::to_string(rows));
+        const uint32_t count = static_cast<uint32_t>(rows);
+        terni::EntityTable& t = g.tables[static_cast<size_t>(entity)];
+        if (count < t.count) {  // rows given up go back to the defaults, without ids or modifiers
+            for (size_t f = 0; f < e.fields.size(); ++f) {
+                const terni::FieldDef& field = e.fields[f];
+                const size_t words = field.words();
+                const uint64_t raw = static_cast<uint64_t>(field.default_raw);
+                for (size_t v = size_t{count} * field.size; v < size_t{t.count} * field.size; ++v)
+                    for (size_t w = 0; w < words; ++w)
+                        t.columns[f][v * words + w] = static_cast<int32_t>(static_cast<uint32_t>(raw >> (32 * w)));
+            }
+            std::erase_if(t.ids, [&](const auto& id) { return id.second >= count; });
+            std::erase_if(g.initial_modifiers, [&](const terni::InitialModifier& m) {
+                return m.entity == static_cast<uint32_t>(entity) && m.row >= count;
+            });
+        }
+        t.count = count;
+        return true;
+    });
+}
+
+bool World::write_start(int entity, const std::string& field, int row, const int32_t* words, size_t count) {
+    return guard(impl_, error_, false, [&] {
+        terni::Game& g = impl_->need_game_before_start();
+        size_t column = 0;
+        const terni::FieldDef& f = impl_->need_field(entity, field, column);
+        impl_->need_row(entity, row);
+        const size_t per_row = size_t{f.size} * f.words();
+        if (count % per_row != 0)
+            throw std::runtime_error(std::to_string(count) + " words are not whole rows of '" + field + "' (" +
+                                     std::to_string(per_row) + " words per row)");
+        if (static_cast<size_t>(row) + count / per_row > impl_->entity(entity)->capacity)
+            throw std::runtime_error("the rows run past the entity type's capacity");
+        std::copy_n(words, count,
+                    g.tables[static_cast<size_t>(entity)].columns[column].begin() +
+                        static_cast<std::ptrdiff_t>(static_cast<size_t>(row) * per_row));
+        return true;
+    });
+}
+
+bool World::read_start(int entity, const std::string& field, int first_row, int rows, std::vector<int32_t>& words) const {
+    words.clear();
+    return guard(impl_, error_, false, [&] {
+        impl_->need_game();
+        size_t column = 0;
+        const terni::FieldDef& f = impl_->need_field(entity, field, column);
+        const uint32_t capacity = impl_->entity(entity)->capacity;
+        const uint32_t first = std::min(static_cast<uint32_t>(std::max(first_row, 0)), capacity);
+        const uint32_t n = std::min(rows < 0 ? kAllRows : static_cast<uint32_t>(rows), capacity - first);
+        const size_t per_row = size_t{f.size} * f.words();
+        const auto from = impl_->game->tables[static_cast<size_t>(entity)].columns[column].begin() +
+                          static_cast<std::ptrdiff_t>(first * per_row);
+        words.assign(from, from + static_cast<std::ptrdiff_t>(n * per_row));
+        return true;
+    });
+}
+
+bool World::add_start_modifier(int bundle, int entity, int row, int32_t scale, int duration) {
+    return guard(impl_, error_, false, [&] {
+        terni::Game& g = impl_->need_game_before_start();
+        impl_->need_bundle(bundle);
+        impl_->need_row(entity, row);
+        const uint32_t count = g.tables[static_cast<size_t>(entity)].count;
+        if (static_cast<uint32_t>(row) >= count)
+            throw std::runtime_error("row " + std::to_string(row) + " is not in use at the start (" + std::to_string(count) +
+                                     " rows are)");
+        if (g.initial_modifiers.size() >= g.modifier_capacity)
+            throw std::runtime_error("the modifier store is full (" + std::to_string(g.modifier_capacity) + " instances)");
+        g.initial_modifiers.push_back(terni::InitialModifier{static_cast<uint32_t>(bundle), static_cast<uint32_t>(entity),
+                                                             static_cast<uint32_t>(row), scale,
+                                                             static_cast<uint32_t>(std::max(duration, 0))});
+        return true;
+    });
+}
+
 bool World::start(const StartOptions& options) {
     stop();
     return guard(impl_, error_, false, [&] {
@@ -244,6 +384,7 @@ bool World::start(const StartOptions& options) {
         o.cache_only = options.cache_only || !terni::can_compile_rules();
         o.validation = options.validation;
         o.spin_us = options.spin_us;
+        impl_->compiler = options.compiler;
         impl_->lost = false;
         impl_->simulate_lost = false;
         impl_->sim = std::make_unique<terni::GameSim>(*impl_->game, o);
@@ -302,6 +443,23 @@ bool World::end_tick() {
     });
 }
 
+bool World::tick_checked(std::vector<OrderIssue>& issues) {
+    issues.clear();
+    return guard(impl_, error_, false, [&] {
+        impl_->need_sim();
+        for (const terni::OrderIssue& i : impl_->sim->tick_checked()) {
+            OrderIssue item;
+            item.stage = i.stage;
+            item.field = i.field;
+            item.parallel = i.parallel;
+            item.first_row = i.first_row;
+            item.rows = i.rows;
+            issues.push_back(std::move(item));
+        }
+        return true;
+    });
+}
+
 bool World::tick_in_flight() const { return impl_->sim && impl_->sim->tick_in_flight(); }
 uint64_t World::ticks() const { return impl_->sim ? impl_->sim->ticks() : 0; }
 double World::last_tick_ms() const { return impl_->sim ? impl_->sim->last_tick_ms() : 0; }
@@ -340,6 +498,7 @@ bool World::field_info(int entity, const std::string& field, FieldInfo& info) co
     info.type = static_cast<int>(f->type);
     info.size = static_cast<int>(f->size);
     info.words = static_cast<int>(f->words());
+    info.ref = f->type == terni::FieldType::Ref ? impl_->game->entity_index(f->ref_entity) : -1;
     return true;
 }
 
@@ -355,6 +514,13 @@ std::string World::row_id(int entity, int row) const {
         for (const auto& [id, r] : impl_->game->tables[static_cast<size_t>(entity)].ids)
             if (static_cast<int>(r) == row) return id;
     return {};
+}
+
+std::vector<std::string> World::defines() const {
+    std::vector<std::string> out;
+    if (impl_->game)
+        for (const terni::DefineDef& d : impl_->game->defines) out.push_back(d.name);
+    return out;
 }
 
 bool World::define(const std::string& name, int32_t& raw) const {
@@ -518,11 +684,47 @@ Modifier World::add_modifier(int bundle, int entity, int row, int32_t scale, int
     return guard(impl_, error_, Modifier{}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
-        if (bundle < 0 || bundle >= static_cast<int>(impl_->game->bundles.size())) throw std::runtime_error("no such bundle");
+        impl_->need_bundle(bundle);
         const terni::ModifierHandle h =
             impl_->sim->add_modifier(static_cast<uint32_t>(bundle), static_cast<uint32_t>(entity), static_cast<uint32_t>(row),
                                      scale, static_cast<uint32_t>(std::max(duration, 0)));
         return Modifier{h.slot, h.version};
+    });
+}
+
+bool World::add_modifiers(int bundle, int entity, const int32_t* rows, size_t count, int32_t scale, int duration,
+                          std::vector<Modifier>& modifiers) {
+    modifiers.clear();
+    return guard(impl_, error_, false, [&] {
+        impl_->need_sim();
+        impl_->need_bundle(bundle);
+        for (size_t i = 0; i < count; ++i) impl_->need_row(entity, rows[i]);  // all or none
+        const size_t room = impl_->game->modifier_capacity - impl_->sim->modifier_count();
+        if (count > room)
+            throw std::runtime_error("the modifier store has room for " + std::to_string(room) + " more instances, not " +
+                                     std::to_string(count));
+        modifiers.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const terni::ModifierHandle h =
+                impl_->sim->add_modifier(static_cast<uint32_t>(bundle), static_cast<uint32_t>(entity),
+                                         static_cast<uint32_t>(rows[i]), scale, static_cast<uint32_t>(std::max(duration, 0)));
+            modifiers.push_back(Modifier{h.slot, h.version});
+        }
+        return true;
+    });
+}
+
+bool World::replace_modifier(Modifier& m, int bundle, int entity, int row, int32_t scale, int duration) {
+    return guard(impl_, error_, false, [&] {
+        impl_->need_sim();
+        impl_->need_bundle(bundle);
+        impl_->need_row(entity, row);
+        impl_->sim->remove_modifier(terni::ModifierHandle{m.slot, m.version});
+        const terni::ModifierHandle h =
+            impl_->sim->add_modifier(static_cast<uint32_t>(bundle), static_cast<uint32_t>(entity), static_cast<uint32_t>(row),
+                                     scale, static_cast<uint32_t>(std::max(duration, 0)));
+        m = Modifier{h.slot, h.version};
+        return true;
     });
 }
 
@@ -545,12 +747,23 @@ bool World::modifier_alive(Modifier m) const {
                  [&] { return impl_->sim && impl_->sim->modifier_alive(terni::ModifierHandle{m.slot, m.version}); });
 }
 
+int World::modifier_count() const { return impl_->sim ? static_cast<int>(impl_->sim->modifier_count()) : 0; }
+
+int32_t World::modifier_own_total(int key, int entity, int row) const {
+    return guard(impl_, error_, int32_t{0}, [&] {
+        impl_->need_sim();
+        impl_->need_row(entity, row);
+        impl_->need_key(key);
+        return impl_->sim->modifier_own_total(static_cast<uint32_t>(key), static_cast<uint32_t>(entity),
+                                              static_cast<uint32_t>(row));
+    });
+}
+
 int32_t World::modifier_total(int key, int entity, int row) {
     return guard(impl_, error_, int32_t{0}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
-        if (key < 0 || key >= static_cast<int>(impl_->game->modifier_keys.size()))
-            throw std::runtime_error("no such modifier key");
+        impl_->need_key(key);
         return impl_->sim->modifier_total(static_cast<uint32_t>(key), static_cast<uint32_t>(entity), static_cast<uint32_t>(row));
     });
 }
@@ -559,8 +772,7 @@ std::vector<Contribution> World::modifier_breakdown(int key, int entity, int row
     return guard(impl_, error_, std::vector<Contribution>{}, [&] {
         impl_->need_sim();
         impl_->need_row(entity, row);
-        if (key < 0 || key >= static_cast<int>(impl_->game->modifier_keys.size()))
-            throw std::runtime_error("no such modifier key");
+        impl_->need_key(key);
         std::vector<Contribution> out;
         for (const terni::ModifierContribution& c : impl_->sim->modifier_breakdown(
                  static_cast<uint32_t>(key), static_cast<uint32_t>(entity), static_cast<uint32_t>(row))) {
@@ -650,6 +862,21 @@ std::vector<StageTime> World::stage_times() const {
         return out;
     });
 }
+
+CompileStats World::compile_stats() const {
+    return guard(impl_, error_, CompileStats{}, [&] {
+        if (!impl_->sim) return CompileStats{};
+        if (impl_->compiler.compiled > 0) return impl_->compiler;  // the simulation itself then found all in the cache
+        const terni::CompileStats s = impl_->sim->compile_stats();
+        CompileStats out;
+        out.compiled = s.compiled;
+        out.cached = s.cached;
+        out.ms = s.ms;
+        return out;
+    });
+}
+
+uint64_t World::sync_reads() const { return impl_->sim ? impl_->sim->sync_reads() : 0; }
 
 std::string World::device_name() const {
     return guard(impl_, error_, std::string(), [&] { return impl_->sim ? impl_->sim->device_name() : std::string(); });

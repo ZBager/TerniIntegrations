@@ -42,7 +42,7 @@ namespace Terni
     }
 
     /// <summary>A Vulkan device the simulation can run on.</summary>
-    public readonly record struct TerniDevice(int Index, string Name, string Type, bool IsCpu, bool Usable, string WhyNot,
+    public readonly record struct TerniDevice(int Index, string Name, string Type, string Driver, bool IsCpu, bool Usable, string WhyNot,
                                               TerniBufferRobustness Robustness);
 
     /// <summary>A hash of one field ("planet.pop") or of one entity type's fields ("planet"), computed on the device.</summary>
@@ -53,6 +53,15 @@ namespace Terni
     {
         public double AverageMs => Runs > 0 ? TotalMs / Runs : 0;
     }
+
+    /// <summary>
+    /// A stage whose result depends on the order its rows are handled in: Field came out different
+    /// forwards and backwards, or (Parallel) in parallel and one row at a time.
+    /// </summary>
+    public readonly record struct TerniOrderIssue(string Stage, string Field, bool Parallel, long FirstRow, long Rows);
+
+    /// <summary>Where the rules' SPIR-V came from at the last start.</summary>
+    public readonly record struct TerniCompileStats(int Compiled, int Cached, double Ms);
 
     /// <summary>C# events over a Godot object's signals, removable again.</summary>
     internal sealed class SignalEvents
@@ -195,7 +204,7 @@ namespace Terni
             for (var i = 0; i < list.Count; i++)
             {
                 var d = list[i].AsGodotDictionary();
-                result[i] = new TerniDevice(d["index"].AsInt32(), d["name"].AsString(), d["type"].AsString(),
+                result[i] = new TerniDevice(d["index"].AsInt32(), d["name"].AsString(), d["type"].AsString(), d["driver"].AsString(),
                                             d["is_cpu"].AsBool(), d["usable"].AsBool(), d["why_not"].AsString(),
                                             (TerniBufferRobustness)d["robustness"].AsInt32());
             }
@@ -233,6 +242,18 @@ namespace Terni
         /// </summary>
         public bool Load(string gameFolder, params string[] mods) => C("load", gameFolder, mods ?? Array.Empty<string>()).AsBool();
         public bool SetCapacity(int entity, int rows) => C("set_capacity", entity, rows).AsBool();
+        /// <summary>Room for this many modifier instances at once. Before the start; part of Checksum.</summary>
+        public bool SetModifierCapacity(int instances) => C("set_modifier_capacity", instances).AsBool();
+        /// <summary>Rows in use at the start; new ones get the fields' defaults. Before the start.</summary>
+        public bool SetStartCount(int entity, int rows) => C("set_start_count", entity, rows).AsBool();
+        /// <summary>The starting value of whole rows of a field, from a row on, as raw words. Before the start.</summary>
+        public bool WriteStart(int entity, string field, int row, int[] words) => C("write_start", entity, field, row, words).AsBool();
+        /// <summary>The starting value of rows of a field, as raw words; all of them if rows is -1.</summary>
+        public int[] ReadStart(int entity, string field, int firstRow = 0, int rows = -1) =>
+            C("read_start", entity, field, firstRow, rows).AsInt32Array();
+        /// <summary>A modifier present at the start. Before the start.</summary>
+        public bool AddStartModifier(int bundle, int entity, int row, int scale = TerniValue.RateOne, int duration = 0) =>
+            C("add_start_modifier", bundle, entity, row, scale, duration).AsBool();
         public bool Start(TerniStartOptions options = null) => C("start", (options ?? new TerniStartOptions()).ToGodot()).AsBool();
         /// <summary>Starts on a worker thread; poll StartReady(). Other calls meanwhile wait for the start.</summary>
         public bool BeginStart(TerniStartOptions options = null) => C("begin_start", (options ?? new TerniStartOptions()).ToGodot()).AsBool();
@@ -255,6 +276,27 @@ namespace Terni
         public bool TickReady() => C("tick_ready").AsBool();
         public bool EndTick() => C("end_tick").AsBool();
         public bool TickInFlight => C("is_tick_in_flight").AsBool();
+        /// <summary>
+        /// A tick like Tick() that also finds stages whose result depends on the order of their rows;
+        /// OrderIssues lists them. Much slower: for tests, on small worlds.
+        /// </summary>
+        public bool TickChecked() => C("tick_checked").AsBool();
+        /// <summary>What the last TickChecked() found.</summary>
+        public TerniOrderIssue[] OrderIssues
+        {
+            get
+            {
+                var list = C("get_order_issues").AsGodotArray();
+                var result = new TerniOrderIssue[list.Count];
+                for (var i = 0; i < list.Count; i++)
+                {
+                    var d = list[i].AsGodotDictionary();
+                    result[i] = new TerniOrderIssue(d["stage"].AsString(), d["field"].AsString(), d["parallel"].AsBool(),
+                                                    d["first_row"].AsInt64(), d["rows"].AsInt64());
+                }
+                return result;
+            }
+        }
         public long Ticks => C("get_ticks").AsInt64();
         public double LastTickMs => C("get_last_tick_ms").AsDouble();
         public double LastTickGpuMs => C("get_last_tick_gpu_ms").AsDouble();
@@ -275,8 +317,11 @@ namespace Terni
         public bool HasField(int entity, string field) => C("has_field", entity, field).AsBool();
         public TerniFieldType GetFieldType(int entity, string field) => (TerniFieldType)C("get_field_type", entity, field).AsInt32();
         public int GetFieldSize(int entity, string field) => C("get_field_size", entity, field).AsInt32();
+        /// <summary>The entity type a ref field refers to; -1 for other fields.</summary>
+        public int GetFieldRef(int entity, string field) => C("get_field_ref", entity, field).AsInt32();
         public int FindRow(int entity, string id) => C("find_row", entity, id).AsInt32();
         public string GetRowId(int entity, int row) => C("get_row_id", entity, row).AsString();
+        public string[] GetDefines() => C("get_defines").AsStringArray();
         public bool GetDefine(string name, out int raw)
         {
             var v = C("get_define", name);
@@ -322,9 +367,29 @@ namespace Terni
 
         public TerniModifier AddModifier(int bundle, int entity, int row, int scale = TerniValue.RateOne, int duration = 0) =>
             TerniModifier.From(C("add_modifier", bundle, entity, row, scale, duration).AsVector2I());
+        /// <summary>The same bundle on many rows, all or none: one handle per row, or an empty array if it failed.</summary>
+        public TerniModifier[] AddModifiers(int bundle, int entity, int[] rows, int scale = TerniValue.RateOne, int duration = 0)
+        {
+            var list = C("add_modifiers", bundle, entity, rows, scale, duration).AsGodotArray();
+            var result = new TerniModifier[list.Count];
+            for (var i = 0; i < list.Count; i++)
+                result[i] = TerniModifier.From(list[i].AsVector2I());
+            return result;
+        }
+        /// <summary>
+        /// Removes a modifier if it is still alive and adds a new one in its place: returns the new
+        /// handle, or the old one if the call failed.
+        /// </summary>
+        public TerniModifier ReplaceModifier(TerniModifier modifier, int bundle, int entity, int row, int scale = TerniValue.RateOne,
+                                             int duration = 0) =>
+            TerniModifier.From(C("replace_modifier", modifier.ToGodot(), bundle, entity, row, scale, duration).AsVector2I());
         public bool SetModifierScale(TerniModifier modifier, int scale) => C("set_modifier_scale", modifier.ToGodot(), scale).AsBool();
         public bool RemoveModifier(TerniModifier modifier) => C("remove_modifier", modifier.ToGodot()).AsBool();
         public bool IsModifierAlive(TerniModifier modifier) => C("is_modifier_alive", modifier.ToGodot()).AsBool();
+        /// <summary>Modifier instances alive now.</summary>
+        public int ModifierCount => C("get_modifier_count").AsInt32();
+        /// <summary>The raw total of a key on a row without what it inherits.</summary>
+        public int GetModifierOwnTotal(int key, int entity, int row) => C("get_modifier_own_total", key, entity, row).AsInt32();
         public int GetModifierTotal(int key, int entity, int row) => C("get_modifier_total", key, entity, row).AsInt32();
         public TerniContribution[] GetModifierBreakdown(int key, int entity, int row)
         {
@@ -368,6 +433,18 @@ namespace Terni
             }
             return result;
         }
+
+        /// <summary>Where the rules' SPIR-V came from at the last start.</summary>
+        public TerniCompileStats CompileStats
+        {
+            get
+            {
+                var d = C("get_compile_stats").AsGodotDictionary();
+                return new TerniCompileStats(d["compiled"].AsInt32(), d["cached"].AsInt32(), d["ms"].AsDouble());
+            }
+        }
+        /// <summary>Reads so far that waited for the device (ReadField, Save, GetStateHash): keep them out of every tick.</summary>
+        public long SyncReads => C("get_sync_reads").AsInt64();
 
         private static TerniHash[] Hashes(GDDictionary d)
         {

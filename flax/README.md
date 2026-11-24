@@ -76,13 +76,22 @@ public class Towns : Script
 - **`TerniWorld`** (object, also for C++ and Visual Scripting): `Load` /
   `LoadWithMods`, `Start`, `Tick` / `BeginTick` / `TickReady` / `EndTick`, `ReadField`,
   `WriteField`, `WriteValue`, `Subscribe`, `CreateEntity` / `DestroyEntity`,
-  `GetAliveBits`, `GetFreeCount`, `AddModifier` and the other modifier calls, `Save` /
+  `GetAliveBits`, `GetFreeCount`, `AddModifier` / `AddModifiers` / `ReplaceModifier` and the
+  other modifier calls, `Save` /
   `LoadSave`, `Checksum`, `GetStateHash`, `GetFieldHashes` / `GetEntityHashes`,
-  `GetStageTimes`, `GetDevices` (each with its `Robustness`: what a rule that reads or
+  `GetStageTimes`, `CompileStats`, `SyncReads`, `GetDevices` (each with its `Robustness`: what a rule that reads or
   writes past the end of a field does there), `MoveToDevice`; event `DeviceLost`. Functions that return `bool` return true when they
   worked; after false, `LastError` says why, and the log has it too. `BeginStart`,
   `StartReady` and `EndStart` start a world without holding up the frame; any other
   call made during a start waits for it.
+- **A generated starting state**: between `Load` and `Start`, `SetCapacity`,
+  `SetModifierCapacity`, `SetStartCount`, `WriteStart` / `ReadStart` and
+  `AddStartModifier` change what the game's history files describe, for a map a match
+  generates. Every peer of a multiplayer game must make the same calls: `Checksum`
+  covers the capacities but not the starting rows, values and modifiers, so compare
+  `GetEntityHashes` after the start.
+- **`TickChecked`** (for tests): a tick that also finds stages whose result depends on the
+  order of their rows, which would make peers drift apart; `OrderIssues` names them.
 - **`TerniValue`**: raw values to numbers for display, and back.
 - **Script reloads** in the editor free every world (device and game data) before the
   plugin's code is replaced. A script that still holds a `TerniWorld` afterwards finds

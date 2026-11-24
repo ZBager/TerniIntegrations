@@ -16,12 +16,19 @@ namespace terni_bridge {
 
 struct Device {
     int index = 0;
-    std::string name, type, why_not;
+    std::string name, type, driver, why_not;
     bool cpu = false, usable = false;
     // What a rule that reads or writes past the end of a field does on this device
     // (terni::BufferRobustness): 0 undefined, 1 stays inside the buffer in a way the driver
     // chooses, 2 reads 0 and writes nothing, the same on every device.
     int robustness = 0;
+};
+
+// Where the rules' SPIR-V came from.
+struct CompileStats {
+    unsigned compiled = 0;  // stages compiled
+    unsigned cached = 0;    // stages taken from the cache
+    double ms = 0;          // time spent on it
 };
 
 struct StartOptions {
@@ -31,6 +38,7 @@ struct StartOptions {
     bool cache_only = true;
     bool validation = false;
     uint32_t spin_us = 0;  // waits for a tick spin this long before they sleep (GameSimOptions::spin_us)
+    CompileStats compiler;  // what terni_compile_rules did for this start (parse_compile_output)
 };
 
 struct Modifier {
@@ -63,14 +71,24 @@ struct StageTime {
     double total_ms = 0;  // over those ticks
 };
 
+// A stage whose result depends on the order its rows are handled in (World::tick_checked()).
+struct OrderIssue {
+    std::string stage, field;  // "planet_growth", "planet.pop"
+    bool parallel = false;     // false: forwards and backwards differ; true: in parallel it differs from one row at a time
+    uint64_t first_row = 0, rows = 0;  // the first row that differs, and how many do
+};
+
 struct FieldInfo {
     int type = 0;  // terni::FieldType
     int size = 0;  // values per row
     int words = 0; // 32-bit words per value
+    int ref = -1;  // of a ref field: the entity type it refers to
 };
 
 std::vector<Device> devices(std::string& error);
 bool can_compile_rules();
+// Reads the statistics terni_compile_rules prints. False if they are not in `output`.
+bool parse_compile_output(const std::string& output, CompileStats& stats);
 // ---- a software Vulkan driver shipped with the game ----
 enum class DriverResult {
     added,           // the shipped driver was added to the system's
@@ -127,6 +145,13 @@ public:
     // The game's folder with mod folders on top, in order: the game's first.
     bool load(const std::vector<std::string>& folders, std::vector<std::string>& errors, std::vector<std::string>& warnings);
     bool set_capacity(int entity, int rows);
+    // Between load() and start(), too (see terni.h for what each does): the modifier store's
+    // room, the rows in use at the start, and the starting state itself.
+    bool set_modifier_capacity(int instances);
+    bool set_start_count(int entity, int rows);
+    bool write_start(int entity, const std::string& field, int row, const int32_t* words, size_t count);
+    bool read_start(int entity, const std::string& field, int first_row, int rows, std::vector<int32_t>& words) const;
+    bool add_start_modifier(int bundle, int entity, int row, int32_t scale, int duration);
     bool start(const StartOptions& options);
     void stop();
     void unload();  // stop() and forget the game too
@@ -138,6 +163,8 @@ public:
     bool tick_ready();
     bool end_tick();
     bool tick_in_flight() const;
+    // A tick that also finds stages whose result depends on the order of their rows. Slow.
+    bool tick_checked(std::vector<OrderIssue>& issues);
     uint64_t ticks() const;
     double last_tick_ms() const;
     double last_tick_gpu_ms() const;
@@ -150,6 +177,7 @@ public:
     bool field_info(int entity, const std::string& field, FieldInfo& info) const;
     int find_row(int entity, const std::string& id) const;
     std::string row_id(int entity, int row) const;
+    std::vector<std::string> defines() const;
     bool define(const std::string& name, int32_t& raw) const;
     std::vector<std::string> bundles() const;
     int find_bundle(const std::string& name) const;
@@ -175,9 +203,16 @@ public:
     int free_count(int entity);  // rows create_entity() would find now; -1: failed
 
     Modifier add_modifier(int bundle, int entity, int row, int32_t scale, int duration);
+    // One bundle on many rows, all or none of them: on failure `modifiers` is empty.
+    bool add_modifiers(int bundle, int entity, const int32_t* rows, size_t count, int32_t scale, int duration,
+                       std::vector<Modifier>& modifiers);
+    // Removes `m` if it is still alive and adds the new one. On failure nothing changes.
+    bool replace_modifier(Modifier& m, int bundle, int entity, int row, int32_t scale, int duration);
     bool set_modifier_scale(Modifier m, int32_t scale);
     bool remove_modifier(Modifier m);
     bool modifier_alive(Modifier m) const;
+    int modifier_count() const;
+    int32_t modifier_own_total(int key, int entity, int row) const;  // without what it inherits
     int32_t modifier_total(int key, int entity, int row);
     std::vector<Contribution> modifier_breakdown(int key, int entity, int row);
 
@@ -192,6 +227,9 @@ public:
     bool field_hashes(std::vector<Hash>& hashes);
     bool entity_hashes(std::vector<Hash>& hashes);
     std::vector<StageTime> stage_times() const;
+
+    CompileStats compile_stats() const;  // of the last start
+    uint64_t sync_reads() const;         // reads so far that waited for the device
 
     std::string device_name() const;
     Health health() const;

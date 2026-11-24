@@ -177,6 +177,8 @@ namespace Game
 
                 CheckDeviceLost(folder, Check);
                 CheckMod(folder, simulation.ResolveFolder(Mod), Check);
+                CheckStartState(folder, Check);
+                CheckOrderAndCache(folder, Check);
             }
             catch (Exception e)
             {
@@ -235,6 +237,99 @@ namespace Game
                   $"TerniSimulation invokes DeviceLost, not Failed ({string.Join(", ", events)})");
             simulation.StopWorld();
             FlaxEngine.Object.Destroy(actor);
+        }
+
+        // A starting state changed before the start, and the modifier calls on many rows at once.
+        private static void CheckStartState(string folder, Action<bool, string> check)
+        {
+            var world = new TerniWorld();
+            try
+            {
+                check(world.Load(folder), "start state: the game loads");
+                var planet = world.Entity("planet");
+                var empire = world.Entity("empire");
+                var harvest = world.FindBundle("good_harvest");
+                var key = world.FindModifierKey("pop_growth");
+                check(world.GetDefines().Contains("growth_rate") && world.GetFieldRef(planet, "owner") == empire && world.GetFieldRef(planet, "pop") == -1,
+                      "defines by name, and what a ref field refers to");
+                var checksum = world.Checksum;
+                check(world.SetModifierCapacity(2048) && world.Checksum != checksum && !world.SetModifierCapacity(0),
+                      "the modifier store's capacity is set, and is part of the checksum");
+                var row = world.GetCount(planet);
+                var pop = TerniValue.FromDouble(100, TerniFieldType.Quantity);
+                check(!world.AddStartModifier(harvest, planet, row), "a start modifier on a row not in use is an error");
+                check(world.SetStartCount(planet, row + 2) && world.GetCount(planet) == row + 2 && !world.SetStartCount(planet, 1 << 30),
+                      "two more planets at the start");
+                check(world.WriteStart(planet, "owner", row, new[] { 0, 0 }) && world.WriteStart(planet, "pop", row, new[] { pop, pop }) &&
+                      world.ReadStart(planet, "pop", row, 2).SequenceEqual(new[] { pop, pop }) && world.ReadStart(planet, "pop").Length == world.GetCapacity(planet),
+                      "their starting values are written and read");
+                check(!world.WriteStart(empire, "stock", 0, new[] { 1, 2 }) && !world.WriteStart(planet, "no_such_field", 0, new[] { 1 }),
+                      "words that are not whole rows, and a bad field, are errors");
+                check(world.AddStartModifier(harvest, planet, row), "a modifier at the start");
+                check(world.Start(new TerniStartOptions()), "the changed world starts: " + world.LastError);
+                if (!world.IsRunning)
+                    return;
+                check(!world.WriteStart(planet, "pop", row, new[] { pop }), "a running world refuses a starting state");
+                var reads = world.SyncReads;
+                check(world.ReadField(planet, "pop", row, 2).SequenceEqual(new[] { pop, pop }) && world.SyncReads > reads,
+                      "the starting state is on the device, and the read was counted as one that waits");
+                var instances = world.ModifierCount;
+                var own = world.GetModifierOwnTotal(key, planet, row);
+                check(instances >= 1 && own > 0 && world.GetModifierOwnTotal(key, planet, row + 1) == 0, "the start modifier is in its row's own total");
+
+                var added = world.AddModifiers(harvest, planet, new[] { 0, row, row + 1 });
+                check(added.Length == 3 && world.ModifierCount == instances + 3 && world.GetModifierOwnTotal(key, planet, row) == 2 * own &&
+                      world.GetModifierOwnTotal(key, planet, row + 1) == own, "one bundle on three rows");
+                check(world.AddModifiers(harvest, planet, new[] { 0, 1 << 30 }).Length == 0 && world.ModifierCount == instances + 3,
+                      "a bad row among many adds none of them");
+                var replaced = world.ReplaceModifier(added[2], harvest, planet, row + 1, 2 * TerniValue.RateOne);
+                check(!world.IsModifierAlive(added[2]) && world.IsModifierAlive(replaced) && world.ModifierCount == instances + 3 &&
+                      world.GetModifierOwnTotal(key, planet, row + 1) == 2 * own, "a modifier replaced by another");
+                var kept = world.ReplaceModifier(replaced, -1, planet, row + 1);
+                check(kept.Slot == replaced.Slot && kept.Version == replaced.Version && world.IsModifierAlive(replaced), "a failed replacement keeps the old one");
+                world.AddModifier(world.FindBundle("war_economy"), empire, 0);
+                check(world.GetModifierTotal(key, planet, row + 1) < world.GetModifierOwnTotal(key, planet, row + 1), "the total inherits, the own total does not");
+
+                var ticks = world.Ticks;
+                check(world.TickChecked() && world.Ticks == ticks + 1 && world.OrderIssues.Length == 0, "a checked tick finds no order issues");
+                world.Stop();
+                check(world.SetStartCount(planet, row) && world.GetCount(planet) == row, "rows can be given up again");
+            }
+            finally
+            {
+                world.Stop();
+                FlaxEngine.Object.Destroy(world);
+            }
+        }
+
+        // A rule whose result depends on the order of its rows, and where its SPIR-V came from.
+        private static void CheckOrderAndCache(string folder, Action<bool, string> check)
+        {
+            var mod = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "terni_order_test_" + Guid.NewGuid().ToString("N"));
+            var cache = System.IO.Path.Combine(mod, "spirv");
+            var world = new TerniWorld();
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mod, "rules"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(mod, "rules", "planet_growth.glsl"),
+                    "void main() {\n    FOR_EACH_PLANET(p) planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n}\n");
+                check(world.LoadWithMods(folder, new[] { mod }) && world.Warnings.Length > 0, "a rule that depends on order is a warning when it loads");
+                var options = new TerniStartOptions { CacheFolder = cache };
+                check(world.Start(options), "it starts with an empty cache: " + world.LastError);
+                var stats = world.CompileStats;
+                check(stats.Compiled >= 3 && stats.Cached == 0 && stats.Ms > 0, $"its rules were compiled ({stats.Compiled} compiled, {stats.Cached} cached)");
+                check(world.TickChecked() && world.OrderIssues.Any(i => i.Stage == "planet_growth" && i.Field == "planet.pop" && i.Rows > 0),
+                      "a checked tick names the stage and field: " + string.Join("; ", world.OrderIssues.Select(i => $"{i.Stage} {i.Field} from row {i.FirstRow}")));
+                check(world.Start(options) && world.CompileStats.Compiled == 0 && world.CompileStats.Cached >= 3, "the second start takes them from the cache");
+                world.Stop();
+                check(!world.TickChecked() && world.CompileStats.Cached == 0, "a stopped world cannot be checked");
+            }
+            finally
+            {
+                world.Stop();
+                FlaxEngine.Object.Destroy(world);
+                System.IO.Directory.Delete(mod, true);
+            }
         }
 
         // The game's folder with a mod on top: its rules compiled, saves of the game alone

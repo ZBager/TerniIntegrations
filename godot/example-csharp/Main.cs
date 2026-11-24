@@ -175,6 +175,29 @@ public partial class Main : Control
             var row = modded.CreateEntity(fleet);
             Check(row == 0 && (modded.GetAliveBits(fleet)[0] & 1) == 1 && modded.GetFreeCount(fleet) == 63, "alive bits and free rows");
             modded.Stop();
+
+            // A starting state changed before the start, and modifiers on many rows at once.
+            var start = new TerniWorld();
+            Check(start.Load("res://Galaxy") && start.GetDefines().Contains("growth_rate") &&
+                  start.GetFieldRef(start.Entity("planet"), "owner") == start.Entity("empire"), "defines, and what a ref field refers to");
+            var planets = start.Entity("planet");
+            var harvest = start.FindBundle("good_harvest");
+            var growth = start.FindModifierKey("pop_growth");
+            var first = start.GetCount(planets);
+            Check(start.SetModifierCapacity(2048) && start.SetStartCount(planets, first + 1) && start.WriteStart(planets, "owner", first, new[] { 0 }) &&
+                  start.WriteStart(planets, "pop", first, new[] { 25600 }) && start.ReadStart(planets, "pop", first, 1).SequenceEqual(new[] { 25600 }) &&
+                  start.AddStartModifier(harvest, planets, first), "a starting state is written and read: " + start.LastError);
+            Check(start.Start() && start.ReadField(planets, "pop", first, 1)[0] == 25600 && start.SyncReads > 0, "and the world starts with it");
+            var own = start.GetModifierOwnTotal(growth, planets, first);
+            var instances = start.ModifierCount;
+            var added = start.AddModifiers(harvest, planets, new[] { 0, first });
+            Check(own > 0 && added.Length == 2 && start.ModifierCount == instances + 2 && start.GetModifierOwnTotal(growth, planets, first) == 2 * own,
+                  "one bundle on two rows");
+            var replaced = start.ReplaceModifier(added[1], harvest, planets, first, 2 * TerniValue.RateOne);
+            Check(!start.IsModifierAlive(added[1]) && start.IsModifierAlive(replaced) && start.ModifierCount == instances + 2, "a modifier replaced by another");
+            Check(start.TickChecked() && start.OrderIssues.Length == 0 && start.Ticks == 1, "a checked tick finds no order issues");
+            Check(start.CompileStats.Compiled + start.CompileStats.Cached >= 3, $"compile statistics: {start.CompileStats}");
+            start.Stop();
         }
         catch (Exception e)
         {

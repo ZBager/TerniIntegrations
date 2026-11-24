@@ -52,6 +52,11 @@ public:
     // loading and running
     bool load(const String& game_folder, const PackedStringArray& mods);
     bool set_capacity(int64_t entity, int64_t rows);
+    bool set_modifier_capacity(int64_t instances);
+    bool set_start_count(int64_t entity, int64_t rows);
+    bool write_start(int64_t entity, const String& field, int64_t row, const PackedInt32Array& words);
+    PackedInt32Array read_start(int64_t entity, const String& field, int64_t first_row, int64_t rows) const;
+    bool add_start_modifier(int64_t bundle, int64_t entity, int64_t row, int64_t scale, int64_t duration);
     bool start(const Dictionary& options);
     bool begin_start(const Dictionary& options);
     bool start_ready();
@@ -72,6 +77,8 @@ public:
     bool tick_ready();
     bool end_tick();
     bool is_tick_in_flight() const;
+    bool tick_checked();
+    Array get_order_issues() const { return order_issues_; }
     int64_t get_ticks() const;
     double get_last_tick_ms() const;
     double get_last_tick_gpu_ms() const;
@@ -86,8 +93,10 @@ public:
     bool has_field(int64_t entity, const String& field) const;
     int64_t get_field_type(int64_t entity, const String& field) const;
     int64_t get_field_size(int64_t entity, const String& field) const;
+    int64_t get_field_ref(int64_t entity, const String& field) const;
     int64_t find_row(int64_t entity, const String& id) const;
     String get_row_id(int64_t entity, int64_t row) const;
+    PackedStringArray get_defines() const;
     Variant get_define(const String& name) const;
     PackedStringArray get_bundles() const;
     int64_t find_bundle(const String& name) const;
@@ -115,9 +124,13 @@ public:
 
     // modifiers: a handle is Vector2i(slot, version)
     Vector2i add_modifier(int64_t bundle, int64_t entity, int64_t row, int64_t scale, int64_t duration);
+    Array add_modifiers(int64_t bundle, int64_t entity, const PackedInt32Array& rows, int64_t scale, int64_t duration);
+    Vector2i replace_modifier(const Vector2i& modifier, int64_t bundle, int64_t entity, int64_t row, int64_t scale, int64_t duration);
     bool set_modifier_scale(const Vector2i& modifier, int64_t scale);
     bool remove_modifier(const Vector2i& modifier);
     bool is_modifier_alive(const Vector2i& modifier) const;
+    int64_t get_modifier_count() const;
+    int64_t get_modifier_own_total(int64_t key, int64_t entity, int64_t row) const;
     int64_t get_modifier_total(int64_t key, int64_t entity, int64_t row);
     Array get_modifier_breakdown(int64_t key, int64_t entity, int64_t row);
 
@@ -129,6 +142,8 @@ public:
     Dictionary get_field_hashes();
     Dictionary get_entity_hashes();
     Array get_stage_times() const;
+    Dictionary get_compile_stats() const;
+    int64_t get_sync_reads() const;
 
     // the device
     String get_device_name() const;
@@ -149,6 +164,7 @@ private:
     PackedStringArray mods_;
     mutable String last_error_;
     PackedStringArray errors_, warnings_, fitted_;
+    Array order_issues_;
     mutable bool lost_signalled_ = false;
 
     terni_bridge::World* bridge() const;  // waits for a start in flight

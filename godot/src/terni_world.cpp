@@ -201,6 +201,7 @@ struct TerniWorld::StartJob {
                     done = true;
                     return;
                 }
+                terni_bridge::parse_compile_output(to_std(String(result["output"])), options.compiler);
             }
         }
         if (!bridge->start(options)) failure = to_godot(bridge->error());
@@ -247,6 +248,7 @@ Array TerniWorld::get_devices() {
         device["index"] = d.index;
         device["name"] = to_godot(d.name);
         device["type"] = to_godot(d.type);
+        device["driver"] = to_godot(d.driver);
         device["is_cpu"] = d.cpu;
         device["usable"] = d.usable;
         device["why_not"] = to_godot(d.why_not);
@@ -367,6 +369,37 @@ bool TerniWorld::set_capacity(int64_t entity, int64_t rows) {
     return ok;
 }
 
+bool TerniWorld::set_modifier_capacity(int64_t instances) {
+    const bool ok = bridge()->set_modifier_capacity(to_int(instances));
+    report();
+    return ok;
+}
+
+bool TerniWorld::set_start_count(int64_t entity, int64_t rows) {
+    const bool ok = bridge()->set_start_count(to_int(entity), to_int(rows));
+    report();
+    return ok;
+}
+
+bool TerniWorld::write_start(int64_t entity, const String& field, int64_t row, const PackedInt32Array& words) {
+    const bool ok = bridge()->write_start(to_int(entity), to_std(field), to_int(row), words.ptr(), static_cast<size_t>(words.size()));
+    report();
+    return ok;
+}
+
+PackedInt32Array TerniWorld::read_start(int64_t entity, const String& field, int64_t first_row, int64_t rows) const {
+    std::vector<int32_t> words;
+    bridge()->read_start(to_int(entity), to_std(field), to_int(first_row), to_int(rows), words);
+    report();
+    return to_packed(words.data(), words.size());
+}
+
+bool TerniWorld::add_start_modifier(int64_t bundle, int64_t entity, int64_t row, int64_t scale, int64_t duration) {
+    const bool ok = bridge()->add_start_modifier(to_int(bundle), to_int(entity), to_int(row), to_int(scale), to_int(duration));
+    report();
+    return ok;
+}
+
 // Options (all optional): device (int: run on this device; otherwise choose), ignore_renderer
 // (bool: do not prefer the renderer's GPU), preference (DevicePreference), cache_folder
 // (String; default: "spirv" in the game folder), cache_only (bool: never compile rules),
@@ -468,6 +501,22 @@ bool TerniWorld::end_tick() {
     report();
     return ok;
 }
+bool TerniWorld::tick_checked() {
+    std::vector<terni_bridge::OrderIssue> issues;
+    const bool ok = bridge()->tick_checked(issues);
+    order_issues_ = Array();
+    for (const terni_bridge::OrderIssue& i : issues) {
+        Dictionary item;
+        item["stage"] = to_godot(i.stage);
+        item["field"] = to_godot(i.field);
+        item["parallel"] = i.parallel;
+        item["first_row"] = static_cast<int64_t>(i.first_row);
+        item["rows"] = static_cast<int64_t>(i.rows);
+        order_issues_.push_back(item);
+    }
+    report();
+    return ok;
+}
 bool TerniWorld::is_tick_in_flight() const { return bridge()->tick_in_flight(); }
 int64_t TerniWorld::get_ticks() const { return static_cast<int64_t>(bridge()->ticks()); }
 double TerniWorld::get_last_tick_ms() const { return bridge()->last_tick_ms(); }
@@ -497,8 +546,13 @@ int64_t TerniWorld::get_field_size(int64_t entity, const String& field) const {
     terni_bridge::FieldInfo info;
     return bridge()->field_info(to_int(entity), to_std(field), info) ? info.size : 0;
 }
+int64_t TerniWorld::get_field_ref(int64_t entity, const String& field) const {
+    terni_bridge::FieldInfo info;
+    return bridge()->field_info(to_int(entity), to_std(field), info) ? info.ref : -1;
+}
 int64_t TerniWorld::find_row(int64_t entity, const String& id) const { return bridge()->find_row(to_int(entity), to_std(id)); }
 String TerniWorld::get_row_id(int64_t entity, int64_t row) const { return to_godot(bridge()->row_id(to_int(entity), to_int(row))); }
+PackedStringArray TerniWorld::get_defines() const { return to_godot(bridge()->defines()); }
 Variant TerniWorld::get_define(const String& name) const {
     int32_t raw = 0;
     return bridge()->define(to_std(name), raw) ? Variant(int64_t(raw)) : Variant();
@@ -595,6 +649,22 @@ Vector2i TerniWorld::add_modifier(int64_t bundle, int64_t entity, int64_t row, i
     report();
     return to_godot(m);
 }
+Array TerniWorld::add_modifiers(int64_t bundle, int64_t entity, const PackedInt32Array& rows, int64_t scale, int64_t duration) {
+    std::vector<terni_bridge::Modifier> added;
+    bridge()->add_modifiers(to_int(bundle), to_int(entity), rows.ptr(), static_cast<size_t>(rows.size()), to_int(scale),
+                            to_int(duration), added);
+    report();
+    Array out;
+    for (const terni_bridge::Modifier& m : added) out.push_back(to_godot(m));
+    return out;
+}
+Vector2i TerniWorld::replace_modifier(const Vector2i& modifier, int64_t bundle, int64_t entity, int64_t row, int64_t scale,
+                                      int64_t duration) {
+    terni_bridge::Modifier m = to_bridge(modifier);
+    bridge()->replace_modifier(m, to_int(bundle), to_int(entity), to_int(row), to_int(scale), to_int(duration));
+    report();
+    return to_godot(m);
+}
 bool TerniWorld::set_modifier_scale(const Vector2i& modifier, int64_t scale) {
     const bool ok = bridge()->set_modifier_scale(to_bridge(modifier), to_int(scale));
     report();
@@ -606,6 +676,12 @@ bool TerniWorld::remove_modifier(const Vector2i& modifier) {
     return ok;
 }
 bool TerniWorld::is_modifier_alive(const Vector2i& modifier) const { return bridge()->modifier_alive(to_bridge(modifier)); }
+int64_t TerniWorld::get_modifier_count() const { return bridge()->modifier_count(); }
+int64_t TerniWorld::get_modifier_own_total(int64_t key, int64_t entity, int64_t row) const {
+    const int32_t total = bridge()->modifier_own_total(to_int(key), to_int(entity), to_int(row));
+    report();
+    return total;
+}
 int64_t TerniWorld::get_modifier_total(int64_t key, int64_t entity, int64_t row) {
     const int32_t total = bridge()->modifier_total(to_int(key), to_int(entity), to_int(row));
     report();
@@ -690,6 +766,17 @@ Array TerniWorld::get_stage_times() const {
     return out;
 }
 
+Dictionary TerniWorld::get_compile_stats() const {
+    const terni_bridge::CompileStats s = bridge()->compile_stats();
+    Dictionary out;
+    out["compiled"] = static_cast<int64_t>(s.compiled);
+    out["cached"] = static_cast<int64_t>(s.cached);
+    out["ms"] = s.ms;
+    return out;
+}
+
+int64_t TerniWorld::get_sync_reads() const { return static_cast<int64_t>(bridge()->sync_reads()); }
+
 // ---- the device ----
 
 String TerniWorld::get_device_name() const { return to_godot(bridge()->device_name()); }
@@ -731,6 +818,12 @@ void TerniWorld::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("load", "game_folder", "mods"), &TerniWorld::load, DEFVAL(PackedStringArray()));
     ClassDB::bind_method(D_METHOD("set_capacity", "entity", "rows"), &TerniWorld::set_capacity);
+    ClassDB::bind_method(D_METHOD("set_modifier_capacity", "instances"), &TerniWorld::set_modifier_capacity);
+    ClassDB::bind_method(D_METHOD("set_start_count", "entity", "rows"), &TerniWorld::set_start_count);
+    ClassDB::bind_method(D_METHOD("write_start", "entity", "field", "row", "words"), &TerniWorld::write_start);
+    ClassDB::bind_method(D_METHOD("read_start", "entity", "field", "first_row", "rows"), &TerniWorld::read_start, DEFVAL(0), DEFVAL(-1));
+    ClassDB::bind_method(D_METHOD("add_start_modifier", "bundle", "entity", "row", "scale", "duration"), &TerniWorld::add_start_modifier,
+                         DEFVAL(RATE_ONE), DEFVAL(0));
     ClassDB::bind_method(D_METHOD("start", "options"), &TerniWorld::start, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("begin_start", "options"), &TerniWorld::begin_start, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("start_ready"), &TerniWorld::start_ready);
@@ -750,6 +843,8 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("tick_ready"), &TerniWorld::tick_ready);
     ClassDB::bind_method(D_METHOD("end_tick"), &TerniWorld::end_tick);
     ClassDB::bind_method(D_METHOD("is_tick_in_flight"), &TerniWorld::is_tick_in_flight);
+    ClassDB::bind_method(D_METHOD("tick_checked"), &TerniWorld::tick_checked);
+    ClassDB::bind_method(D_METHOD("get_order_issues"), &TerniWorld::get_order_issues);
     ClassDB::bind_method(D_METHOD("get_ticks"), &TerniWorld::get_ticks);
     ClassDB::bind_method(D_METHOD("get_last_tick_ms"), &TerniWorld::get_last_tick_ms);
     ClassDB::bind_method(D_METHOD("get_last_tick_gpu_ms"), &TerniWorld::get_last_tick_gpu_ms);
@@ -763,8 +858,10 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("has_field", "entity", "field"), &TerniWorld::has_field);
     ClassDB::bind_method(D_METHOD("get_field_type", "entity", "field"), &TerniWorld::get_field_type);
     ClassDB::bind_method(D_METHOD("get_field_size", "entity", "field"), &TerniWorld::get_field_size);
+    ClassDB::bind_method(D_METHOD("get_field_ref", "entity", "field"), &TerniWorld::get_field_ref);
     ClassDB::bind_method(D_METHOD("find_row", "entity", "id"), &TerniWorld::find_row);
     ClassDB::bind_method(D_METHOD("get_row_id", "entity", "row"), &TerniWorld::get_row_id);
+    ClassDB::bind_method(D_METHOD("get_defines"), &TerniWorld::get_defines);
     ClassDB::bind_method(D_METHOD("get_define", "name"), &TerniWorld::get_define);
     ClassDB::bind_method(D_METHOD("get_bundles"), &TerniWorld::get_bundles);
     ClassDB::bind_method(D_METHOD("find_bundle", "name"), &TerniWorld::find_bundle);
@@ -790,9 +887,15 @@ void TerniWorld::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("add_modifier", "bundle", "entity", "row", "scale", "duration"), &TerniWorld::add_modifier,
                          DEFVAL(RATE_ONE), DEFVAL(0));
+    ClassDB::bind_method(D_METHOD("add_modifiers", "bundle", "entity", "rows", "scale", "duration"), &TerniWorld::add_modifiers,
+                         DEFVAL(RATE_ONE), DEFVAL(0));
+    ClassDB::bind_method(D_METHOD("replace_modifier", "modifier", "bundle", "entity", "row", "scale", "duration"),
+                         &TerniWorld::replace_modifier, DEFVAL(RATE_ONE), DEFVAL(0));
     ClassDB::bind_method(D_METHOD("set_modifier_scale", "modifier", "scale"), &TerniWorld::set_modifier_scale);
     ClassDB::bind_method(D_METHOD("remove_modifier", "modifier"), &TerniWorld::remove_modifier);
     ClassDB::bind_method(D_METHOD("is_modifier_alive", "modifier"), &TerniWorld::is_modifier_alive);
+    ClassDB::bind_method(D_METHOD("get_modifier_count"), &TerniWorld::get_modifier_count);
+    ClassDB::bind_method(D_METHOD("get_modifier_own_total", "key", "entity", "row"), &TerniWorld::get_modifier_own_total);
     ClassDB::bind_method(D_METHOD("get_modifier_total", "key", "entity", "row"), &TerniWorld::get_modifier_total);
     ClassDB::bind_method(D_METHOD("get_modifier_breakdown", "key", "entity", "row"), &TerniWorld::get_modifier_breakdown);
 
@@ -803,6 +906,9 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_field_hashes"), &TerniWorld::get_field_hashes);
     ClassDB::bind_method(D_METHOD("get_entity_hashes"), &TerniWorld::get_entity_hashes);
     ClassDB::bind_method(D_METHOD("get_stage_times"), &TerniWorld::get_stage_times);
+
+    ClassDB::bind_method(D_METHOD("get_compile_stats"), &TerniWorld::get_compile_stats);
+    ClassDB::bind_method(D_METHOD("get_sync_reads"), &TerniWorld::get_sync_reads);
 
     ClassDB::bind_method(D_METHOD("get_device_name"), &TerniWorld::get_device_name);
     ClassDB::bind_method(D_METHOD("get_health"), &TerniWorld::get_health);

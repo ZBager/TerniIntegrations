@@ -253,6 +253,7 @@ Array<TerniDevice> TerniWorld::GetDevices()
         device.Index = d.index;
         device.Name = ToFlax(d.name);
         device.Type = ToFlax(d.type);
+        device.Driver = ToFlax(d.driver);
         device.IsCpu = d.cpu;
         device.Usable = d.usable;
         device.WhyNot = ToFlax(d.why_not);
@@ -377,6 +378,35 @@ bool TerniWorld::SetCapacity(int32 entity, int32 rows)
     return Checked(Bridge()->set_capacity(entity, rows));
 }
 
+bool TerniWorld::SetModifierCapacity(int32 instances)
+{
+    return Checked(Bridge()->set_modifier_capacity(instances));
+}
+
+bool TerniWorld::SetStartCount(int32 entity, int32 rows)
+{
+    return Checked(Bridge()->set_start_count(entity, rows));
+}
+
+bool TerniWorld::WriteStart(int32 entity, const StringView& field, int32 row, const Span<int32>& words)
+{
+    return Checked(Bridge()->write_start(entity, ToStd(field), row, words.Get(), (size_t)words.Length()));
+}
+
+Array<int32> TerniWorld::ReadStart(int32 entity, const StringView& field, int32 firstRow, int32 rows) const
+{
+    std::vector<int32_t> words;
+    Checked(Bridge()->read_start(entity, ToStd(field), firstRow, rows, words));
+    Array<int32> out;
+    out.Set(words.data(), (int32)words.size());
+    return out;
+}
+
+bool TerniWorld::AddStartModifier(int32 bundle, int32 entity, int32 row, int32 scale, int32 duration)
+{
+    return Checked(Bridge()->add_start_modifier(bundle, entity, row, scale, duration));
+}
+
 // A start: what PrepareStart() worked out on the main thread, then the work, which needs
 // nothing of the TerniWorld but its bridge and may run on any thread.
 struct TerniWorld::StartJob
@@ -429,6 +459,7 @@ struct TerniWorld::StartJob
                     done = true;
                     return;
                 }
+                terni_bridge::parse_compile_output(ToStd(output), options.compiler);
             }
         }
         if (!bridge->start(options))
@@ -568,6 +599,24 @@ bool TerniWorld::EndTick()
     return Checked(Bridge()->end_tick());
 }
 
+bool TerniWorld::TickChecked()
+{
+    std::vector<terni_bridge::OrderIssue> issues;
+    const bool ok = Bridge()->tick_checked(issues);
+    _orderIssues.Clear();
+    for (const terni_bridge::OrderIssue& i : issues)
+    {
+        TerniOrderIssue item;
+        item.Stage = ToFlax(i.stage);
+        item.Field = ToFlax(i.field);
+        item.Parallel = i.parallel;
+        item.FirstRow = i.first_row;
+        item.Rows = i.rows;
+        _orderIssues.Add(item);
+    }
+    return Checked(ok);
+}
+
 bool TerniWorld::GetTickInFlight() const
 {
     return Bridge()->tick_in_flight();
@@ -631,6 +680,12 @@ int32 TerniWorld::GetFieldSize(int32 entity, const StringView& field) const
     return Bridge()->field_info(entity, ToStd(field), info) ? info.size : 0;
 }
 
+int32 TerniWorld::GetFieldRef(int32 entity, const StringView& field) const
+{
+    terni_bridge::FieldInfo info;
+    return Bridge()->field_info(entity, ToStd(field), info) ? info.ref : -1;
+}
+
 int32 TerniWorld::FindRow(int32 entity, const StringView& id) const
 {
     return Bridge()->find_row(entity, ToStd(id));
@@ -639,6 +694,11 @@ int32 TerniWorld::FindRow(int32 entity, const StringView& id) const
 String TerniWorld::GetRowId(int32 entity, int32 row) const
 {
     return ToFlax(Bridge()->row_id(entity, row));
+}
+
+Array<String> TerniWorld::GetDefines() const
+{
+    return ToFlax(Bridge()->defines());
 }
 
 bool TerniWorld::GetDefine(const StringView& name, int32& raw) const
@@ -770,6 +830,23 @@ TerniModifier TerniWorld::AddModifier(int32 bundle, int32 entity, int32 row, int
     return ToFlax(Checked(Bridge()->add_modifier(bundle, entity, row, scale, duration)));
 }
 
+Array<TerniModifier> TerniWorld::AddModifiers(int32 bundle, int32 entity, const Span<int32>& rows, int32 scale, int32 duration)
+{
+    std::vector<terni_bridge::Modifier> added;
+    Checked(Bridge()->add_modifiers(bundle, entity, rows.Get(), (size_t)rows.Length(), scale, duration, added));
+    Array<TerniModifier> out;
+    for (const terni_bridge::Modifier& m : added)
+        out.Add(ToFlax(m));
+    return out;
+}
+
+TerniModifier TerniWorld::ReplaceModifier(const TerniModifier& modifier, int32 bundle, int32 entity, int32 row, int32 scale, int32 duration)
+{
+    terni_bridge::Modifier m = ToBridge(modifier);
+    Checked(Bridge()->replace_modifier(m, bundle, entity, row, scale, duration));
+    return ToFlax(m);
+}
+
 bool TerniWorld::SetModifierScale(const TerniModifier& modifier, int32 scale)
 {
     return Checked(Bridge()->set_modifier_scale(ToBridge(modifier), scale));
@@ -783,6 +860,16 @@ bool TerniWorld::RemoveModifier(const TerniModifier& modifier)
 bool TerniWorld::IsModifierAlive(const TerniModifier& modifier) const
 {
     return Checked(Bridge()->modifier_alive(ToBridge(modifier)));
+}
+
+int32 TerniWorld::GetModifierCount() const
+{
+    return Bridge()->modifier_count();
+}
+
+int32 TerniWorld::GetModifierOwnTotal(int32 key, int32 entity, int32 row) const
+{
+    return Checked(Bridge()->modifier_own_total(key, entity, row));
 }
 
 int32 TerniWorld::GetModifierTotal(int32 key, int32 entity, int32 row)
@@ -861,6 +948,21 @@ Array<TerniStageTime> TerniWorld::GetStageTimes() const
     }
     Report();
     return out;
+}
+
+TerniCompileStats TerniWorld::GetCompileStats() const
+{
+    const terni_bridge::CompileStats s = Bridge()->compile_stats();
+    TerniCompileStats out;
+    out.Compiled = (int32)s.compiled;
+    out.Cached = (int32)s.cached;
+    out.Ms = s.ms;
+    return out;
+}
+
+uint64 TerniWorld::GetSyncReads() const
+{
+    return Bridge()->sync_reads();
 }
 
 String TerniWorld::GetDeviceName() const

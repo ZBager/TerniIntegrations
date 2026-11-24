@@ -157,6 +157,8 @@ static func run(folder: String, result_file: String, parent: Node) -> bool:
 
 	_check_device_lost(folder, parent)
 	_check_mod(folder)
+	_check_start_state(folder)
+	_check_order_and_cache(folder)
 
 	_log.append("PASSED" if _ok else "FAILED")
 	var file := FileAccess.open(result_file, FileAccess.WRITE)
@@ -249,3 +251,85 @@ static func _check_mod(folder: String) -> void:
 		"alive bits of a type that is not dynamic are an error, not a crash")
 	game.stop()
 	modded.stop()
+
+
+# A starting state changed before the start, and the modifier calls on many rows at once.
+static func _check_start_state(folder: String) -> void:
+	var world := TerniWorld.new()
+	check(world.load(folder), "start state: the game loads")
+	var planet := world.entity("planet")
+	var empire := world.entity("empire")
+	var harvest := world.find_bundle("good_harvest")
+	var key := world.find_modifier_key("pop_growth")
+	check(world.get_defines().has("growth_rate") and world.get_field_ref(planet, "owner") == empire and world.get_field_ref(planet, "pop") == -1,
+		"defines by name, and what a ref field refers to")
+	var checksum := world.get_checksum()
+	check(world.set_modifier_capacity(2048) and world.get_checksum() != checksum and not world.set_modifier_capacity(0),
+		"the modifier store's capacity is set, and is part of the checksum")
+	var row := world.get_count(planet)
+	var pop := TerniWorld.from_float(100, TerniWorld.FIELD_QUANTITY)
+	check(not world.add_start_modifier(harvest, planet, row), "a start modifier on a row not in use is an error")
+	check(world.set_start_count(planet, row + 2) and world.get_count(planet) == row + 2 and not world.set_start_count(planet, 1 << 30),
+		"two more planets at the start")
+	var instances := world.get_modifier_count()
+	check(instances == 0, "no instances before the start")
+	check(world.write_start(planet, "owner", row, PackedInt32Array([0, 0])) and world.write_start(planet, "pop", row, PackedInt32Array([pop, pop]))
+		and world.read_start(planet, "pop", row, 2) == PackedInt32Array([pop, pop]) and world.read_start(planet, "pop").size() == world.get_capacity(planet),
+		"their starting values are written and read")
+	check(not world.write_start(empire, "stock", 0, PackedInt32Array([1, 2])) and not world.write_start(planet, "no_such_field", 0, PackedInt32Array([1])),
+		"words that are not whole rows, and a bad field, are errors")
+	check(world.add_start_modifier(harvest, planet, row), "a modifier at the start")
+	check(world.start(), "the changed world starts: " + world.get_last_error())
+	if not world.is_running():
+		return
+	check(not world.write_start(planet, "pop", row, PackedInt32Array([pop])), "a running world refuses a starting state")
+	var reads := world.get_sync_reads()
+	check(world.read_field(planet, "pop", row, 2) == PackedInt32Array([pop, pop]) and world.get_sync_reads() > reads,
+		"the starting state is on the device, and the read was counted as one that waits")
+	instances = world.get_modifier_count()
+	var own := world.get_modifier_own_total(key, planet, row)
+	check(instances >= 1 and own > 0 and world.get_modifier_own_total(key, planet, row + 1) == 0, "the start modifier is in its row's own total")
+
+	var added := world.add_modifiers(harvest, planet, PackedInt32Array([0, row, row + 1]))
+	check(added.size() == 3 and world.get_modifier_count() == instances + 3 and world.get_modifier_own_total(key, planet, row) == 2 * own
+		and world.get_modifier_own_total(key, planet, row + 1) == own, "one bundle on three rows")
+	check(world.add_modifiers(harvest, planet, PackedInt32Array([0, 1 << 30])).is_empty() and world.get_modifier_count() == instances + 3,
+		"a bad row among many adds none of them")
+	var replaced := world.replace_modifier(added[2], harvest, planet, row + 1, 2 * TerniWorld.RATE_ONE)
+	check(replaced != added[2] and not world.is_modifier_alive(added[2]) and world.is_modifier_alive(replaced)
+		and world.get_modifier_count() == instances + 3 and world.get_modifier_own_total(key, planet, row + 1) == 2 * own, "a modifier replaced by another")
+	check(world.replace_modifier(replaced, -1, planet, row + 1) == replaced and world.is_modifier_alive(replaced), "a failed replacement keeps the old one")
+	world.add_modifier(world.find_bundle("war_economy"), empire, 0)
+	check(world.get_modifier_total(key, planet, row + 1) < world.get_modifier_own_total(key, planet, row + 1), "the total inherits, the own total does not")
+
+	var ticks := world.get_ticks()
+	check(world.tick_checked() and world.get_ticks() == ticks + 1 and world.get_order_issues().is_empty(), "a checked tick finds no order issues")
+	world.stop()
+	check(world.set_start_count(planet, row) and world.get_count(planet) == row, "rows can be given up again")
+
+
+# A rule whose result depends on the order of its rows, and where its SPIR-V came from.
+static func _check_order_and_cache(folder: String) -> void:
+	var mod := "user://order_test_%d" % Time.get_ticks_usec()
+	var rule := mod.path_join("rules/planet_growth.glsl")
+	var cache := mod.path_join("spirv")
+	DirAccess.make_dir_recursive_absolute(rule.get_base_dir())
+	var file := FileAccess.open(rule, FileAccess.WRITE)
+	file.store_string("void main() {\n    FOR_EACH_PLANET(p) planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n}\n")
+	file.close()
+	var world := TerniWorld.new()
+	check(world.load(folder, [mod]) and not world.get_warnings().is_empty(), "a rule that depends on order is a warning when it loads")
+	check(world.start({"cache_folder": cache}), "it starts with an empty cache: " + world.get_last_error())
+	var stats := world.get_compile_stats()
+	check(stats.compiled >= 3 and stats.cached == 0 and stats.ms > 0, "its rules were compiled (%s)" % stats)
+	check(world.tick_checked() and world.get_order_issues().any(func(i): return i.stage == "planet_growth" and i.field == "planet.pop" and i.rows > 0),
+		"a checked tick names the stage and field: %s" % [world.get_order_issues()])
+	check(world.start({"cache_folder": cache}) and world.get_compile_stats().compiled == 0 and world.get_compile_stats().cached >= 3,
+		"the second start takes them from the cache (%s)" % world.get_compile_stats())
+	world.stop()
+	check(not world.tick_checked() and world.get_compile_stats().cached == 0, "a stopped world cannot be checked")
+	for name in DirAccess.get_files_at(cache):
+		DirAccess.remove_absolute(cache.path_join(name))
+	DirAccess.remove_absolute(rule)
+	for path in [cache, rule.get_base_dir(), mod]:
+		DirAccess.remove_absolute(path)

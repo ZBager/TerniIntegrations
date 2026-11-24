@@ -44,10 +44,16 @@ with link-time optimisation, could make it smaller.
 CI's slowest step is the C# example's build on Windows (about 10 minutes, the first
 .NET restore and build on a fresh runner); a cache of NuGet packages may shorten it.
 
-## 3. Calls lockstep games use
+## 3. Move to Terni's C API
 
-Calls a lockstep game makes that the plugins lack: `tick_checked()` and its issues,
-writing a generated starting state before the start (and reading it back), adding one
-modifier bundle to many rows in one call, and compile statistics. Terni's planned C API
-is meant to carry these for every plugin at once, so the plugins take only what a game
-needs before then.
+The calls lockstep games use are in both plugins (`tick_checked` and its issues, a
+generated starting state, one bundle on many rows, compile statistics). The plugins still
+go through their own bridge over the C++ API (`native/bridge`); Terni's C API now offers
+the same calls to every host. Moving to it would remove most of the bridge.
+
+Left out on purpose:
+
+- A folder of GLSL library sources in place of the ones inside Terni
+  (`shader_library_dir`): rules are compiled by `terni_compile_rules`, which always uses
+  its own, so rules compiled for such a folder would never be found in the cache.
+- Worlds described in code (`WorldBuilder`): the plugins load data folders.

@@ -73,6 +73,8 @@ API_STRUCT() struct TERNI_API TerniDevice
     API_FIELD() String Name;
     /// <summary>"discrete", "integrated", "virtual", "cpu (software)" or "other".</summary>
     API_FIELD() String Type;
+    /// <summary>The driver's name and version; empty if the device does not say.</summary>
+    API_FIELD() String Driver;
     /// <summary>A software driver: the rules run on the CPU.</summary>
     API_FIELD() bool IsCpu = false;
     /// <summary>The device has everything Terni needs.</summary>
@@ -111,6 +113,44 @@ API_STRUCT() struct TERNI_API TerniStageTime
     API_FIELD() uint64 Runs = 0;
     /// <summary>GPU time over those ticks, in milliseconds.</summary>
     API_FIELD() double TotalMs = 0;
+};
+
+/// <summary>
+/// A stage whose result depends on the order its rows are handled in, found by TerniWorld.TickChecked().
+/// </summary>
+API_STRUCT() struct TERNI_API TerniOrderIssue
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(TerniOrderIssue);
+
+    API_FIELD() String Stage;
+    /// <summary>The field that came out different ("planet.pop").</summary>
+    API_FIELD() String Field;
+    /// <summary>False: forwards and backwards differ. True: in parallel it differs from one row at a time.</summary>
+    API_FIELD() bool Parallel = false;
+    /// <summary>The first row that differs, and how many do.</summary>
+    API_FIELD() uint64 FirstRow = 0;
+    API_FIELD() uint64 Rows = 0;
+};
+
+/// <summary>
+/// Where the rules' SPIR-V came from at the last start.
+/// </summary>
+API_STRUCT() struct TERNI_API TerniCompileStats
+{
+    DECLARE_SCRIPTING_TYPE_MINIMAL(TerniCompileStats);
+
+    /// <summary>Stages compiled.</summary>
+    API_FIELD() int32 Compiled = 0;
+    /// <summary>Stages taken from the cache.</summary>
+    API_FIELD() int32 Cached = 0;
+    /// <summary>Time spent on it, in milliseconds.</summary>
+    API_FIELD() double Ms = 0;
+};
+
+template<>
+struct TIsPODType<TerniCompileStats>
+{
+    enum { Value = true };
 };
 
 /// <summary>
@@ -299,6 +339,22 @@ public:
     /// Between Load() and Start(). Peers of a multiplayer game must use the same numbers.
     /// </summary>
     API_FUNCTION() bool SetCapacity(int32 entity, int32 rows);
+    /// <summary>Room for this many modifier instances at once. Between Load() and Start(); part of Checksum.</summary>
+    API_FUNCTION() bool SetModifierCapacity(int32 instances);
+    /// <summary>
+    /// Rows in use at the start: new ones get the fields' defaults, and rows given up lose their
+    /// values, ids and modifiers. Between Load() and Start().
+    /// </summary>
+    API_FUNCTION() bool SetStartCount(int32 entity, int32 rows);
+    /// <summary>
+    /// The starting value of whole rows of a field, from a row on, as raw words: for a generated
+    /// starting state. Between Load() and Start().
+    /// </summary>
+    API_FUNCTION() bool WriteStart(int32 entity, const StringView& field, int32 row, const Span<int32>& words);
+    /// <summary>The starting value of rows of a field, as raw words; up to the capacity if `rows` is -1.</summary>
+    API_FUNCTION() Array<int32> ReadStart(int32 entity, const StringView& field, int32 firstRow = 0, int32 rows = -1) const;
+    /// <summary>A modifier present at the start, on a row in use. Between Load() and Start().</summary>
+    API_FUNCTION() bool AddStartModifier(int32 bundle, int32 entity, int32 row, int32 scale = 65536, int32 duration = 0);
 
     /// <summary>
     /// Starts the loaded game on a device: compiles the rules if needed, then uploads the
@@ -350,6 +406,14 @@ public:
     /// <summary>Waits for the tick in flight and collects its results.</summary>
     API_FUNCTION() bool EndTick();
     API_PROPERTY() bool GetTickInFlight() const;
+    /// <summary>
+    /// A tick like Tick(), with the same result, that also finds stages whose result depends on the
+    /// order of their rows; OrderIssues lists them. Every stage runs three times and the state is
+    /// read back after each: for tests, on small worlds.
+    /// </summary>
+    API_FUNCTION() bool TickChecked();
+    /// <summary>What the last TickChecked() found.</summary>
+    API_PROPERTY() const Array<TerniOrderIssue>& GetOrderIssues() const { return _orderIssues; }
     /// <summary>Completed ticks.</summary>
     API_PROPERTY() uint64 GetTicks() const;
     /// <summary>Wall time of the last tick in milliseconds, uploads and readbacks included.</summary>
@@ -369,10 +433,13 @@ public:
     API_FUNCTION() TerniFieldType GetFieldType(int32 entity, const StringView& field) const;
     /// <summary>Values per row of a field (1 unless the schema gives it a size).</summary>
     API_FUNCTION() int32 GetFieldSize(int32 entity, const StringView& field) const;
+    /// <summary>The entity type a ref field refers to; -1 for other fields.</summary>
+    API_FUNCTION() int32 GetFieldRef(int32 entity, const StringView& field) const;
     /// <summary>The row of a starting entity by the id its history file gave it, or -1.</summary>
     API_FUNCTION() int32 FindRow(int32 entity, const StringView& id) const;
     /// <summary>The id a starting entity has in its history file, or an empty string.</summary>
     API_FUNCTION() String GetRowId(int32 entity, int32 row) const;
+    API_FUNCTION() Array<String> GetDefines() const;
     /// <summary>The raw value of a define (a rate of 0.02 is 1310). False if there is none of that name.</summary>
     API_FUNCTION() bool GetDefine(const StringView& name, API_PARAM(Out) int32& raw) const;
     API_FUNCTION() Array<String> GetBundles() const;
@@ -439,9 +506,20 @@ public:
     /// 0 for until removed.
     /// </summary>
     API_FUNCTION() TerniModifier AddModifier(int32 bundle, int32 entity, int32 row, int32 scale = 65536, int32 duration = 0);
+    /// <summary>The same bundle on many rows, all or none: one handle per row, or an empty array if it failed.</summary>
+    API_FUNCTION() Array<TerniModifier> AddModifiers(int32 bundle, int32 entity, const Span<int32>& rows, int32 scale = 65536, int32 duration = 0);
+    /// <summary>
+    /// Removes a modifier if it is still alive and adds a new one in its place (a policy, a focus).
+    /// Returns the new handle, or the old one if the call failed.
+    /// </summary>
+    API_FUNCTION() TerniModifier ReplaceModifier(const TerniModifier& modifier, int32 bundle, int32 entity, int32 row, int32 scale = 65536, int32 duration = 0);
     API_FUNCTION() bool SetModifierScale(const TerniModifier& modifier, int32 scale);
     API_FUNCTION() bool RemoveModifier(const TerniModifier& modifier);
     API_FUNCTION() bool IsModifierAlive(const TerniModifier& modifier) const;
+    /// <summary>Modifier instances alive now.</summary>
+    API_PROPERTY() int32 GetModifierCount() const;
+    /// <summary>The raw total of a key on a row without what it inherits.</summary>
+    API_FUNCTION() int32 GetModifierOwnTotal(int32 key, int32 entity, int32 row) const;
     /// <summary>The raw total of a key on a row, with what it inherits.</summary>
     API_FUNCTION() int32 GetModifierTotal(int32 key, int32 entity, int32 row);
     /// <summary>The instances behind that total, nearest first.</summary>
@@ -473,6 +551,10 @@ public:
     API_FUNCTION() Array<TerniHash> GetEntityHashes();
     /// <summary>GPU time of each stage, in the order they run. Never waits.</summary>
     API_FUNCTION() Array<TerniStageTime> GetStageTimes() const;
+    /// <summary>Where the rules' SPIR-V came from at the last start.</summary>
+    API_PROPERTY() TerniCompileStats GetCompileStats() const;
+    /// <summary>Reads so far that waited for the device (ReadField(), Save(), GetStateHash()): keep them out of every tick.</summary>
+    API_PROPERTY() uint64 GetSyncReads() const;
 
     // ---- the device ----
 
@@ -504,6 +586,7 @@ private:
     Array<String> _errors;
     Array<String> _warnings;
     Array<String> _fitted;
+    Array<TerniOrderIssue> _orderIssues;
     mutable bool _lostReported = false;
 
     bool Fail(const String& what) const;

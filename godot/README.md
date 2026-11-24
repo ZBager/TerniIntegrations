@@ -55,8 +55,8 @@ func _on_tick() -> void:
 mods)`, `start(options)` / `begin_start(options)`, `tick` / `begin_tick` / `tick_ready` /
 `end_tick`, `read_field`, `write_field`, `write_value`, `subscribe`, `get_subscribed`,
 `create_entity`, `get_alive_bits`, `get_free_count`, `add_modifier` (a handle is a
-`Vector2i`), `save` / `load_save(data, by_name)`, `get_state_hash`, `get_field_hashes`,
-`get_entity_hashes`, `get_stage_times`, `get_devices`, `find_renderer_device`,
+`Vector2i`), `add_modifiers` (one bundle on many rows), `replace_modifier`, `save` / `load_save(data, by_name)`, `get_state_hash`, `get_field_hashes`,
+`get_entity_hashes`, `get_stage_times`, `get_compile_stats`, `get_sync_reads`, `get_devices`, `find_renderer_device`,
 `move_to_device`. Calls that return `bool` return true when they worked; after false,
 `get_last_error()` says why, and the error is also pushed to the debugger. Start
 options are a dictionary: `device`, `ignore_renderer`, `preference`, `cache_folder`,
@@ -75,6 +75,25 @@ the simulation.
 Rules are compiled by `terni_compile_rules`, which comes with the addon, into the folder
 `spirv` inside the game folder. A world starts from that folder and runs the compiler
 only for rules that are new or have changed.
+
+### A generated starting state
+
+Between `load` and `start`, a game can change what its history files describe, for a map
+that a match generates: `set_capacity`, `set_modifier_capacity`, `set_start_count` (rows in
+use), `write_start` / `read_start` (whole rows of a field, as raw words) and
+`add_start_modifier`:
+
+```gdscript
+world.load("res://Galaxy")
+var planet := world.entity("planet")
+world.set_start_count(planet, 500)
+world.write_start(planet, "pop", 0, generated_pop)  # PackedInt32Array, one value per row
+world.start()
+```
+
+Every peer of a multiplayer game must make the same calls. `get_checksum()` covers the
+capacities but not the starting rows, values and modifiers, so compare
+`get_entity_hashes()` after the start.
 
 ### Without a usable GPU
 
@@ -142,6 +161,11 @@ this without resetting a GPU.
 back two words per field: cheap enough for lockstep peers to compare every few ticks
 (each is a dictionary of name to hash, equal on every device that ran the same ticks).
 `get_state_hash()` reads the whole state back and is much slower.
+
+To find rules that can make peers drift apart before players do, run `tick_checked()` in a
+test: a tick that also finds stages whose result depends on the order of their rows.
+`get_order_issues()` then names each stage and field. Every stage runs three times, so use
+a small world.
 
 ## C#
 
