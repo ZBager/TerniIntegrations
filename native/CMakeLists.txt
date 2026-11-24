@@ -23,6 +23,7 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(TERNI_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(TERNI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(TERNI_COMPILE_TOOL ON CACHE BOOL "" FORCE)
 
 # terni_compile_rules ships with games, so that players can change rules, and must not
 # need shaderc on their machines. With a static shaderc that has glslang and SPIRV-Tools
@@ -52,7 +53,7 @@ endif()
 message(STATUS "terni_compile_rules: shaderc ${TERNI_SHADERC_STATIC}" " (ON: linked in, OFF: shared libraries installed beside it)")
 
 set(TERNI_DIR "" CACHE PATH "Local Terni checkout to build instead of the pinned GitHub commit")
-set(TERNI_COMMIT b5fb4cfa9b986ca69f92a8c9b717993a9e8d0a9f)
+set(TERNI_COMMIT f3ebc46cdd7e9d7ff8f55ea820359613be02e45c)
 set(FETCHCONTENT_SOURCE_DIR_TERNI "${TERNI_DIR}")  # empty: fetch the pinned commit
 include(FetchContent)
 FetchContent_Declare(terni GIT_REPOSITORY https://github.com/ZBager/Terni.git GIT_TAG ${TERNI_COMMIT})
@@ -66,11 +67,10 @@ if(WIN32)
   target_link_libraries(terni_bridge PUBLIC dxgi)  # the adapter LUID of a DirectX renderer
 endif()
 
-# Checks a game folder and fills its SPIR-V cache, without a GPU. Engine editors run it
-# as a separate process: they link Terni::runtime, which has no rule compiler, because
-# an engine's own shader compiler can clash with the one Terni uses.
-add_executable(terni_compile_rules compile_rules.cpp)
-target_link_libraries(terni_compile_rules PRIVATE Terni::core)
+# terni_compile_rules, Terni's own program, checks a game folder and fills its SPIR-V cache
+# without a GPU. Engine editors run it as a separate process: they link Terni::runtime,
+# which has no rule compiler, because an engine's own shader compiler can clash with the
+# one Terni uses. Below: how it is linked and installed to ship with games.
 if(NOT MSVC)
   # Fewer things to find on a player's machine. An old-style RPATH, because unlike
   # RUNPATH it also serves the libraries that shaderc itself loads.

@@ -60,8 +60,11 @@ DriverResult add_shipped_driver(const std::string& folder, std::string& path, st
     if (!done) {
         done = true;
         std::error_code ec;
-        const std::filesystem::path file = std::filesystem::path(folder) / shipped_driver_name();
-        first_path = file.string();
+        // UTF-8, as Terni takes it: on Windows path(std::string) and string() use the code page
+        const std::filesystem::path file =
+            std::filesystem::path(std::u8string(folder.begin(), folder.end())) / shipped_driver_name();
+        const std::u8string utf8 = file.u8string();
+        first_path.assign(utf8.begin(), utf8.end());
         try {
             bool system_has_one = false;
             for (const terni::DeviceInfo& d : terni::VulkanContext::list_devices())
