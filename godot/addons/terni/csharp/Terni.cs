@@ -25,6 +25,8 @@ namespace Terni
         Ref,
         /// <summary>A 64-bit whole number in two words: low, then high.</summary>
         Money64,
+        /// <summary>Small fields (1 or 2 bytes on the device), one word per value here too. In a ref, -1 is no row.</summary>
+        Int8, Int16, Count8, Count16, Ref8, Ref16,
     }
 
     /// <summary>Which device to choose when none is named.</summary>
@@ -56,9 +58,10 @@ namespace Terni
 
     /// <summary>
     /// A stage whose result depends on the order its rows are handled in: Field came out different
-    /// forwards and backwards, or (Parallel) in parallel and one row at a time.
+    /// forwards and backwards, or (Parallel) in parallel and one row at a time. With Misfit, no order
+    /// problem: the stage wrote Rows values that do not fit a small field, and the nearest were stored.
     /// </summary>
-    public readonly record struct TerniOrderIssue(string Stage, string Field, bool Parallel, long FirstRow, long Rows);
+    public readonly record struct TerniOrderIssue(string Stage, string Field, bool Parallel, long FirstRow, long Rows, bool Misfit = false);
 
     /// <summary>Where the rules' SPIR-V came from at the last start.</summary>
     public readonly record struct TerniCompileStats(int Compiled, int Cached, double Ms);
@@ -142,7 +145,7 @@ namespace Terni
         {
             TerniFieldType.Quantity => raw / (double)QuantityOne,
             TerniFieldType.Rate => raw / (double)RateOne,
-            TerniFieldType.Count or TerniFieldType.Ref => (uint)raw,
+            TerniFieldType.Count or TerniFieldType.Ref or TerniFieldType.Ref8 or TerniFieldType.Ref16 => (uint)raw,
             _ => raw,
         };
 
@@ -278,7 +281,7 @@ namespace Terni
         public bool TickInFlight => C("is_tick_in_flight").AsBool();
         /// <summary>
         /// A tick like Tick() that also finds stages whose result depends on the order of their rows;
-        /// OrderIssues lists them. Much slower: for tests, on small worlds.
+        /// OrderIssues lists them, and values that do not fit a small field. Much slower: for tests, on small worlds.
         /// </summary>
         public bool TickChecked() => C("tick_checked").AsBool();
         /// <summary>What the last TickChecked() found.</summary>
@@ -292,7 +295,7 @@ namespace Terni
                 {
                     var d = list[i].AsGodotDictionary();
                     result[i] = new TerniOrderIssue(d["stage"].AsString(), d["field"].AsString(), d["parallel"].AsBool(),
-                                                    d["first_row"].AsInt64(), d["rows"].AsInt64());
+                                                    d["first_row"].AsInt64(), d["rows"].AsInt64(), d["misfit"].AsBool());
                 }
                 return result;
             }

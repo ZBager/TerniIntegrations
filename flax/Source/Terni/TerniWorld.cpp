@@ -610,6 +610,7 @@ bool TerniWorld::TickChecked()
         item.Stage = ToFlax(i.stage);
         item.Field = ToFlax(i.field);
         item.Parallel = i.parallel;
+        item.Misfit = i.misfit;
         item.FirstRow = i.first_row;
         item.Rows = i.rows;
         _orderIssues.Add(item);

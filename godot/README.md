@@ -164,7 +164,8 @@ back two words per field: cheap enough for lockstep peers to compare every few t
 
 To find rules that can make peers drift apart before players do, run `tick_checked()` in a
 test: a tick that also finds stages whose result depends on the order of their rows.
-`get_order_issues()` then names each stage and field. Every stage runs three times, so use
+`get_order_issues()` then names each stage and field. An issue with `misfit` is no order
+problem: a rule wrote values that do not fit a small field (`count8`, ...). Every stage runs three times, so use
 a small world.
 
 ## C#

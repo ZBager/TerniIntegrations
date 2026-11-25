@@ -91,7 +91,8 @@ public class Towns : Script
   covers the capacities but not the starting rows, values and modifiers, so compare
   `GetEntityHashes` after the start.
 - **`TickChecked`** (for tests): a tick that also finds stages whose result depends on the
-  order of their rows, which would make peers drift apart; `OrderIssues` names them.
+  order of their rows, which would make peers drift apart; `OrderIssues` names them. One with
+  `Misfit` is no order problem: a rule wrote values that do not fit a small field.
 - **`TerniValue`**: raw values to numbers for display, and back.
 - **Script reloads** in the editor free every world (device and game data) before the
   plugin's code is replaced. A script that still holds a `TerniWorld` afterwards finds

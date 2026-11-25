@@ -452,6 +452,7 @@ bool World::tick_checked(std::vector<OrderIssue>& issues) {
             item.stage = i.stage;
             item.field = i.field;
             item.parallel = i.parallel;
+            item.misfit = i.misfit;
             item.first_row = i.first_row;
             item.rows = i.rows;
             issues.push_back(std::move(item));
@@ -498,7 +499,7 @@ bool World::field_info(int entity, const std::string& field, FieldInfo& info) co
     info.type = static_cast<int>(f->type);
     info.size = static_cast<int>(f->size);
     info.words = static_cast<int>(f->words());
-    info.ref = f->type == terni::FieldType::Ref ? impl_->game->entity_index(f->ref_entity) : -1;
+    info.ref = terni::base_type(f->type) == terni::FieldType::Ref ? impl_->game->entity_index(f->ref_entity) : -1;
     return true;
 }
 

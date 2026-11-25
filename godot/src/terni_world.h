@@ -27,7 +27,10 @@ class TerniWorld : public RefCounted {
     GDCLASS(TerniWorld, RefCounted)
 
 public:
-    enum FieldType { FIELD_QUANTITY, FIELD_RATE, FIELD_AGG, FIELD_INT, FIELD_COUNT, FIELD_REF, FIELD_MONEY64 };
+    enum FieldType {
+        FIELD_QUANTITY, FIELD_RATE, FIELD_AGG, FIELD_INT, FIELD_COUNT, FIELD_REF, FIELD_MONEY64,
+        FIELD_INT8, FIELD_INT16, FIELD_COUNT8, FIELD_COUNT16, FIELD_REF8, FIELD_REF16  // small fields: a word per value here too
+    };
     enum DevicePreference { PREFER_DISCRETE, PREFER_INTEGRATED, PREFER_CPU };
     // What a rule that reads or writes past the end of a field does on a device.
     enum BufferRobustness { ROBUSTNESS_NONE, ROBUSTNESS_BOUNDED, ROBUSTNESS_DEFINED };

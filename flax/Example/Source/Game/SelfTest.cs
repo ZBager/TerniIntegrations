@@ -312,14 +312,28 @@ namespace Game
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mod, "rules"));
                 System.IO.File.WriteAllText(System.IO.Path.Combine(mod, "rules", "planet_growth.glsl"),
-                    "void main() {\n    FOR_EACH_PLANET(p) planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n}\n");
+                    "void main() {\n    FOR_EACH_PLANET(p) {\n        planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n" +
+                    "        if (p < 3u) moon_phase_set(p, 300u);\n    }\n}\n");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mod, "schema"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(mod, "schema", "moons.txt"),  // small fields
+                    "moon = { capacity = 8 owner = ref8:empire phase = count8 tilt = int16 }\n");
                 check(world.LoadWithMods(folder, new[] { mod }) && world.Warnings.Length > 0, "a rule that depends on order is a warning when it loads");
+                var moon = world.FindEntity("moon");
+                check(world.GetFieldType(moon, "phase") == TerniFieldType.Count8 && world.GetFieldType(moon, "tilt") == TerniFieldType.Int16 &&
+                      world.GetFieldType(moon, "owner") == TerniFieldType.Ref8 && world.GetFieldRef(moon, "owner") == world.FindEntity("empire"), "small fields");
+                check(world.SetStartCount(moon, 3), "moons to start with");
                 var options = new TerniStartOptions { CacheFolder = cache };
                 check(world.Start(options), "it starts with an empty cache: " + world.LastError);
                 var stats = world.CompileStats;
                 check(stats.Compiled >= 3 && stats.Cached == 0 && stats.Ms > 0, $"its rules were compiled ({stats.Compiled} compiled, {stats.Cached} cached)");
                 check(world.TickChecked() && world.OrderIssues.Any(i => i.Stage == "planet_growth" && i.Field == "planet.pop" && i.Rows > 0),
                       "a checked tick names the stage and field: " + string.Join("; ", world.OrderIssues.Select(i => $"{i.Stage} {i.Field} from row {i.FirstRow}")));
+                var misfits = world.OrderIssues.Where(i => i.Misfit).ToArray();
+                check(misfits.Length == 1 && misfits[0].Stage == "planet_growth" && misfits[0].Field == "moon.phase" && misfits[0].Rows == 3,
+                      "and values that do not fit a small field");
+                check(world.ReadField(moon, "phase", 0, 3).SequenceEqual(new[] { 255, 255, 255 }), "the nearest values are stored");
+                check(!world.WriteValue(moon, "phase", 0, 256) && world.LastError.Contains("does not fit"), "a value that does not fit is refused");
+                check(world.WriteValue(moon, "owner", 1, -1) && world.Tick() && world.ReadField(moon, "owner", 1, 1).SequenceEqual(new[] { -1 }), "a small ref to no row");
                 check(world.Start(options) && world.CompileStats.Compiled == 0 && world.CompileStats.Cached >= 3, "the second start takes them from the cache");
                 world.Stop();
                 check(!world.TickChecked() && world.CompileStats.Cached == 0, "a stopped world cannot be checked");

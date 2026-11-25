@@ -315,7 +315,9 @@ double TerniWorld::to_float(int64_t raw, int64_t type) {
         case FIELD_QUANTITY: return static_cast<double>(static_cast<int32_t>(raw)) / QUANTITY_ONE;
         case FIELD_RATE: return static_cast<double>(static_cast<int32_t>(raw)) / RATE_ONE;
         case FIELD_COUNT:
-        case FIELD_REF: return static_cast<double>(static_cast<uint32_t>(raw));
+        case FIELD_REF:
+        case FIELD_REF8:
+        case FIELD_REF16: return static_cast<double>(static_cast<uint32_t>(raw));
         default: return static_cast<double>(raw);
     }
 }
@@ -510,6 +512,7 @@ bool TerniWorld::tick_checked() {
         item["stage"] = to_godot(i.stage);
         item["field"] = to_godot(i.field);
         item["parallel"] = i.parallel;
+        item["misfit"] = i.misfit;
         item["first_row"] = static_cast<int64_t>(i.first_row);
         item["rows"] = static_cast<int64_t>(i.rows);
         order_issues_.push_back(item);
@@ -925,6 +928,12 @@ void TerniWorld::_bind_methods() {
     BIND_ENUM_CONSTANT(FIELD_COUNT);
     BIND_ENUM_CONSTANT(FIELD_REF);
     BIND_ENUM_CONSTANT(FIELD_MONEY64);
+    BIND_ENUM_CONSTANT(FIELD_INT8);
+    BIND_ENUM_CONSTANT(FIELD_INT16);
+    BIND_ENUM_CONSTANT(FIELD_COUNT8);
+    BIND_ENUM_CONSTANT(FIELD_COUNT16);
+    BIND_ENUM_CONSTANT(FIELD_REF8);
+    BIND_ENUM_CONSTANT(FIELD_REF16);
     BIND_ENUM_CONSTANT(PREFER_DISCRETE);
     BIND_ENUM_CONSTANT(PREFER_INTEGRATED);
     BIND_ENUM_CONSTANT(PREFER_CPU);

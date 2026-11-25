@@ -66,7 +66,9 @@ namespace Terni
             case TerniFieldType.Quantity: return raw / (double)QuantityOne;
             case TerniFieldType.Rate: return raw / (double)RateOne;
             case TerniFieldType.Count:
-            case TerniFieldType.Ref: return (uint)raw;
+            case TerniFieldType.Ref:
+            case TerniFieldType.Ref8:
+            case TerniFieldType.Ref16: return (uint)raw;
             default: return raw;
             }
         }

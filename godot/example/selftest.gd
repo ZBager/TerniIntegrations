@@ -315,15 +315,30 @@ static func _check_order_and_cache(folder: String) -> void:
 	var cache := mod.path_join("spirv")
 	DirAccess.make_dir_recursive_absolute(rule.get_base_dir())
 	var file := FileAccess.open(rule, FileAccess.WRITE)
-	file.store_string("void main() {\n    FOR_EACH_PLANET(p) planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n}\n")
+	file.store_string("void main() {\n    FOR_EACH_PLANET(p) {\n        planet_pop[p] += planet_pop[(p + 1u) % terni.planet_count] + int(p);\n"
+		+ "        if (p < 3u) moon_phase_set(p, 300u);\n    }\n}\n")
+	file.close()
+	var schema := mod.path_join("schema/moons.txt")  # small fields
+	DirAccess.make_dir_recursive_absolute(schema.get_base_dir())
+	file = FileAccess.open(schema, FileAccess.WRITE)
+	file.store_string("moon = { capacity = 8 owner = ref8:empire phase = count8 tilt = int16 }\n")
 	file.close()
 	var world := TerniWorld.new()
 	check(world.load(folder, [mod]) and not world.get_warnings().is_empty(), "a rule that depends on order is a warning when it loads")
+	var moon := world.find_entity("moon")
+	check(world.get_field_type(moon, "phase") == TerniWorld.FIELD_COUNT8 and world.get_field_type(moon, "tilt") == TerniWorld.FIELD_INT16
+		and world.get_field_type(moon, "owner") == TerniWorld.FIELD_REF8 and world.get_field_ref(moon, "owner") == world.find_entity("empire"), "small fields")
+	check(world.set_start_count(moon, 3), "moons to start with")
 	check(world.start({"cache_folder": cache}), "it starts with an empty cache: " + world.get_last_error())
 	var stats := world.get_compile_stats()
 	check(stats.compiled >= 3 and stats.cached == 0 and stats.ms > 0, "its rules were compiled (%s)" % stats)
 	check(world.tick_checked() and world.get_order_issues().any(func(i): return i.stage == "planet_growth" and i.field == "planet.pop" and i.rows > 0),
 		"a checked tick names the stage and field: %s" % [world.get_order_issues()])
+	check(world.get_order_issues().filter(func(i): return i.misfit).map(func(i): return [i.stage, i.field, i.rows]) == [["planet_growth", "moon.phase", 3]],
+		"and values that do not fit a small field")
+	check(world.read_field(moon, "phase", 0, 3) == PackedInt32Array([255, 255, 255]), "the nearest values are stored")
+	check(not world.write_value(moon, "phase", 0, 256) and world.get_last_error().contains("does not fit"), "a value that does not fit is refused")
+	check(world.write_value(moon, "owner", 1, -1) and world.tick() and world.read_field(moon, "owner", 1, 1) == PackedInt32Array([-1]), "a small ref to no row")
 	check(world.start({"cache_folder": cache}) and world.get_compile_stats().compiled == 0 and world.get_compile_stats().cached >= 3,
 		"the second start takes them from the cache (%s)" % world.get_compile_stats())
 	world.stop()
@@ -331,5 +346,6 @@ static func _check_order_and_cache(folder: String) -> void:
 	for name in DirAccess.get_files_at(cache):
 		DirAccess.remove_absolute(cache.path_join(name))
 	DirAccess.remove_absolute(rule)
-	for path in [cache, rule.get_base_dir(), mod]:
+	DirAccess.remove_absolute(schema)
+	for path in [cache, rule.get_base_dir(), schema.get_base_dir(), mod]:
 		DirAccess.remove_absolute(path)

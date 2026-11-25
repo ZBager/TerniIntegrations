@@ -33,6 +33,18 @@ API_ENUM() enum class TerniFieldType
     Ref,
     /// <summary>A 64-bit whole number in two words: low, then high.</summary>
     Money64,
+    /// <summary>A small field (1 byte): a whole number from -128 to 127. Small fields are one word per value here too.</summary>
+    Int8,
+    /// <summary>A small field (2 bytes): a whole number from -32,768 to 32,767.</summary>
+    Int16,
+    /// <summary>A small field (1 byte): a whole number from 0 to 255.</summary>
+    Count8,
+    /// <summary>A small field (2 bytes): a whole number from 0 to 65,535.</summary>
+    Count16,
+    /// <summary>A small field (1 byte): the row of another entity; -1 is no row.</summary>
+    Ref8,
+    /// <summary>A small field (2 bytes): the row of another entity; -1 is no row.</summary>
+    Ref16,
 };
 
 /// <summary>
@@ -127,7 +139,9 @@ API_STRUCT() struct TERNI_API TerniOrderIssue
     API_FIELD() String Field;
     /// <summary>False: forwards and backwards differ. True: in parallel it differs from one row at a time.</summary>
     API_FIELD() bool Parallel = false;
-    /// <summary>The first row that differs, and how many do.</summary>
+    /// <summary>No order problem: the stage wrote values that do not fit a small field, and the nearest ones were stored.</summary>
+    API_FIELD() bool Misfit = false;
+    /// <summary>The first row that differs, and how many do (of a misfit: how many writes).</summary>
     API_FIELD() uint64 FirstRow = 0;
     API_FIELD() uint64 Rows = 0;
 };
@@ -408,7 +422,7 @@ public:
     API_PROPERTY() bool GetTickInFlight() const;
     /// <summary>
     /// A tick like Tick(), with the same result, that also finds stages whose result depends on the
-    /// order of their rows; OrderIssues lists them. Every stage runs three times and the state is
+    /// order of their rows, and values that do not fit a small field; OrderIssues lists them. Every stage runs three times and the state is
     /// read back after each: for tests, on small worlds.
     /// </summary>
     API_FUNCTION() bool TickChecked();

@@ -75,14 +75,15 @@ struct StageTime {
 struct OrderIssue {
     std::string stage, field;  // "planet_growth", "planet.pop"
     bool parallel = false;     // false: forwards and backwards differ; true: in parallel it differs from one row at a time
-    uint64_t first_row = 0, rows = 0;  // the first row that differs, and how many do
+    bool misfit = false;       // no order problem: the stage wrote values that do not fit a small field
+    uint64_t first_row = 0, rows = 0;  // the first row that differs, and how many do (of a misfit: how many writes)
 };
 
 struct FieldInfo {
     int type = 0;  // terni::FieldType
     int size = 0;  // values per row
     int words = 0; // 32-bit words per value
-    int ref = -1;  // of a ref field: the entity type it refers to
+    int ref = -1;  // of a ref field (small ones too): the entity type it refers to
 };
 
 std::vector<Device> devices(std::string& error);
