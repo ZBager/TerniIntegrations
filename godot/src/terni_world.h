@@ -106,6 +106,7 @@ public:
     PackedStringArray get_modifier_keys() const;
     int64_t find_modifier_key(const String& name) const;
     int64_t get_checksum() const;
+    bool has_small_fields() const;
 
     // fields
     PackedInt32Array read_field(int64_t entity, const String& field, int64_t first_row, int64_t rows);
@@ -114,6 +115,7 @@ public:
     bool write_values(int64_t entity, const String& field, int64_t row, int64_t index, const PackedInt32Array& words);
     int64_t subscribe(int64_t entity, const String& field, int64_t first_row, int64_t rows);
     PackedInt32Array get_subscribed(int64_t id) const;
+    PackedByteArray get_subscribed_bytes(int64_t id) const;
 
     // entities that come and go
     int64_t create_entity(int64_t entity);
@@ -150,6 +152,7 @@ public:
 
     // the device
     String get_device_name() const;
+    bool is_widened() const;
     Dictionary get_health() const;
     bool move_to_device(int64_t device);
     String get_report() const;

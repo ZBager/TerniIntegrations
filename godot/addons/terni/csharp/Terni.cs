@@ -43,9 +43,10 @@ namespace Terni
         Defined,
     }
 
-    /// <summary>A Vulkan device the simulation can run on.</summary>
+    /// <summary>A Vulkan device the simulation can run on. SmallFields: it stores small fields packed; without,
+    /// in 32 bits, with the same results.</summary>
     public readonly record struct TerniDevice(int Index, string Name, string Type, string Driver, bool IsCpu, bool Usable, string WhyNot,
-                                              TerniBufferRobustness Robustness);
+                                              TerniBufferRobustness Robustness, bool SmallFields);
 
     /// <summary>A hash of one field ("planet.pop") or of one entity type's fields ("planet"), computed on the device.</summary>
     public readonly record struct TerniHash(string Name, ulong Hash);
@@ -120,6 +121,8 @@ namespace Terni
         /// <summary>Waits for a tick spin for up to this many microseconds before they sleep: worth it
         /// only for ticks well under a millisecond, and it keeps a CPU core busy. 0: they sleep at once.</summary>
         public int SpinMicroseconds;
+        /// <summary>For tests: store small fields in 32 bits on any device. The results are the same.</summary>
+        public bool WidenSmallFields;
 
         internal GDDictionary ToGodot()
         {
@@ -127,7 +130,7 @@ namespace Terni
             {
                 ["ignore_renderer"] = IgnoreRenderer, ["preference"] = (int)Preference,
                 ["cache_folder"] = CacheFolder, ["cache_only"] = CacheOnly, ["validation"] = Validation,
-                ["spin_us"] = SpinMicroseconds,
+                ["spin_us"] = SpinMicroseconds, ["widen_small_fields"] = WidenSmallFields,
             };
             if (Device >= 0)
                 d["device"] = Device;
@@ -209,7 +212,7 @@ namespace Terni
                 var d = list[i].AsGodotDictionary();
                 result[i] = new TerniDevice(d["index"].AsInt32(), d["name"].AsString(), d["type"].AsString(), d["driver"].AsString(),
                                             d["is_cpu"].AsBool(), d["usable"].AsBool(), d["why_not"].AsString(),
-                                            (TerniBufferRobustness)d["robustness"].AsInt32());
+                                            (TerniBufferRobustness)d["robustness"].AsInt32(), d["small_fields"].AsBool());
             }
             return result;
         }
@@ -335,6 +338,8 @@ namespace Terni
         public int FindBundle(string name) => C("find_bundle", name).AsInt32();
         public string[] GetModifierKeys() => C("get_modifier_keys").AsStringArray();
         public int FindModifierKey(string name) => C("find_modifier_key", name).AsInt32();
+        /// <summary>The game has small fields (Int8 to Ref16).</summary>
+        public bool HasSmallFields => C("has_small_fields").AsBool();
         public ulong Checksum => unchecked((ulong)C("get_checksum").AsInt64());
 
         // ---- fields ----
@@ -352,6 +357,8 @@ namespace Terni
         public int Subscribe(int entity, string field, int firstRow = 0, int rows = -1) =>
             C("subscribe", entity, field, firstRow, rows).AsInt32();
         public int[] GetSubscribed(int id) => C("get_subscribed", id).AsInt32Array();
+        /// <summary>The same as bytes: a small field's values packed, 1 or 2 bytes each.</summary>
+        public byte[] GetSubscribedBytes(int id) => C("get_subscribed_bytes", id).AsByteArray();
 
         // ---- entities that come and go ----
 
@@ -459,6 +466,8 @@ namespace Terni
 
         // ---- the device ----
 
+        /// <summary>Small fields are stored in 32 bits here (TerniDevice.SmallFields, TerniStartOptions.WidenSmallFields).</summary>
+        public bool IsWidened => C("is_widened").AsBool();
         public string DeviceName => C("get_device_name").AsString();
         public TerniHealth Health
         {

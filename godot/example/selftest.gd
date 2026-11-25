@@ -308,6 +308,15 @@ static func _check_start_state(folder: String) -> void:
 	check(world.set_start_count(planet, row) and world.get_count(planet) == row, "rows can be given up again")
 
 
+# The packed bytes of moon.phase after one tick; the words must agree with them.
+static func _moon_bytes(world: TerniWorld, moon: int) -> PackedByteArray:
+	var id := world.subscribe(moon, "phase")
+	world.tick()
+	var bytes := world.get_subscribed_bytes(id)
+	check(Array(bytes) == Array(world.get_subscribed(id)), "the packed bytes are the words' values")
+	return bytes
+
+
 # A rule whose result depends on the order of its rows, and where its SPIR-V came from.
 static func _check_order_and_cache(folder: String) -> void:
 	var mod := "user://order_test_%d" % Time.get_ticks_usec()
@@ -341,6 +350,16 @@ static func _check_order_and_cache(folder: String) -> void:
 	check(world.write_value(moon, "owner", 1, -1) and world.tick() and world.read_field(moon, "owner", 1, 1) == PackedInt32Array([-1]), "a small ref to no row")
 	check(world.start({"cache_folder": cache}) and world.get_compile_stats().compiled == 0 and world.get_compile_stats().cached >= 3,
 		"the second start takes them from the cache (%s)" % world.get_compile_stats())
+	# Small fields packed, and widened as on a device that cannot pack them: the cache has rules for both.
+	var packs: bool = TerniWorld.get_devices().filter(func(d): return d.name == world.get_device_name())[0].small_fields
+	check(world.has_small_fields() and world.is_widened() == not packs, "small fields are packed where the device can (%s)" % world.get_device_name())
+	var bytes := _moon_bytes(world, moon)
+	var hash: int = world.get_entity_hashes()["moon"]
+	check(world.start({"cache_folder": cache, "widen_small_fields": true}) and world.is_widened() and world.get_compile_stats().compiled == 0,
+		"the cache holds the widened rules too (%s)" % world.get_compile_stats())
+	check(bytes == PackedByteArray([255, 255, 255]) and _moon_bytes(world, moon) == bytes and world.get_entity_hashes()["moon"] == hash,
+		"widened small fields give the same bytes and hash")
+	check(world.get_subscribed_bytes(99).is_empty() and not world.get_last_error().is_empty(), "no bytes of a subscription there is not")
 	world.stop()
 	check(not world.tick_checked() and world.get_compile_stats().cached == 0, "a stopped world cannot be checked")
 	for name in DirAccess.get_files_at(cache):

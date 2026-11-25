@@ -65,6 +65,8 @@ func _show_devices() -> void:
 			line += ", reads and writes past a field's end are up to the driver"
 		elif d.robustness == TerniWorld.ROBUSTNESS_NONE:
 			line += ", reads and writes past a field's end are undefined"
+		if d.usable and not d.small_fields:
+			line += ", stores small fields in 32 bits"
 		lines.append(line)
 	_devices.text = "\n".join(lines) if not lines.is_empty() else "No Vulkan device found."
 

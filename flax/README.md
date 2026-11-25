@@ -80,7 +80,7 @@ public class Towns : Script
   other modifier calls, `Save` /
   `LoadSave`, `Checksum`, `GetStateHash`, `GetFieldHashes` / `GetEntityHashes`,
   `GetStageTimes`, `CompileStats`, `SyncReads`, `GetDevices` (each with its `Robustness`: what a rule that reads or
-  writes past the end of a field does there), `MoveToDevice`; event `DeviceLost`. Functions that return `bool` return true when they
+  writes past the end of a field does there, and `SmallFields`), `MoveToDevice`; event `DeviceLost`. Functions that return `bool` return true when they
   worked; after false, `LastError` says why, and the log has it too. `BeginStart`,
   `StartReady` and `EndStart` start a world without holding up the frame; any other
   call made during a start waits for it.
@@ -122,6 +122,17 @@ TerniStartOptions()` in C# means the same: `UseDevice` with `Device` names a dev
 `SpinMicroseconds` lets waits for a tick spin for that long before they sleep (Terni's
 [Embedding](https://github.com/ZBager/Terni/blob/main/docs/embedding.md#waiting-for-small-ticks)
 says when that is worth it).
+
+### Small fields
+
+A game can store fields in 8 or 16 bits
+([Terni's guide](https://github.com/ZBager/Terni/blob/main/docs/concepts.md#small-fields)).
+Every call here sees one 32-bit word per value; `SubscribedBytes` (in Visual Scripting
+`GetSubscribedBytes`) gives a subscribed field as the packed bytes, to upload to a texture
+or buffer. A device without 8 and 16-bit storage (`TerniDevice.SmallFields` is false) stores
+them in 32 bits, with the same results: `IsWidened` tells, and
+`TerniStartOptions.WidenSmallFields` does so on any device, to test it. `HasSmallFields`
+tells whether a game has any.
 
 ### Visual Scripting
 

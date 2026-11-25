@@ -18,6 +18,16 @@ namespace Terni
         }
 
         /// <summary>
+        /// The same as bytes: a small field's values packed, 1 or 2 bytes each. Valid as long.
+        /// </summary>
+        /// <param name="id">The id Subscribe() returned.</param>
+        public unsafe ReadOnlySpan<byte> SubscribedBytes(int id)
+        {
+            var data = GetSubscribedBytesData(id, out var size);
+            return data == IntPtr.Zero ? ReadOnlySpan<byte>.Empty : new ReadOnlySpan<byte>((void*)data, size);
+        }
+
+        /// <summary>
         /// The index of an entity type. Throws if the game has none of that name.
         /// </summary>
         public int Entity(string name)

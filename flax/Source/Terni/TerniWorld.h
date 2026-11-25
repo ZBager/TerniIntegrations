@@ -95,6 +95,8 @@ API_STRUCT() struct TERNI_API TerniDevice
     API_FIELD() String WhyNot;
     /// <summary>What a rule that reads or writes past the end of a field does here.</summary>
     API_FIELD() TerniBufferRobustness Robustness = TerniBufferRobustness::None;
+    /// <summary>It stores small fields packed. Without, it stores them in 32 bits, with the same results.</summary>
+    API_FIELD() bool SmallFields = false;
 };
 
 /// <summary>
@@ -209,6 +211,8 @@ API_STRUCT() struct TERNI_API TerniStartOptions
     /// a CPU core busy meanwhile. No effect on software devices. 0: waits sleep at once.
     /// </summary>
     API_FIELD() int32 SpinMicroseconds = 0;
+    /// <summary>For tests: store small fields in 32 bits on any device, as one without TerniDevice.SmallFields does. The results are the same.</summary>
+    API_FIELD() bool WidenSmallFields = false;
 };
 
 /// <summary>
@@ -462,6 +466,8 @@ public:
     API_FUNCTION() int32 FindModifierKey(const StringView& name) const;
     /// <summary>A hash of everything that defines how the game behaves. Multiplayer peers compare it.</summary>
     API_PROPERTY() uint64 GetChecksum() const;
+    /// <summary>The game has small fields (Int8 to Ref16).</summary>
+    API_PROPERTY() bool GetHasSmallFields() const;
 
     // ---- fields ----
 
@@ -490,6 +496,16 @@ public:
     /// after the next one begins. C# code uses TerniWorld.Subscribed(id), a span over it.
     /// </summary>
     API_FUNCTION() void* GetSubscribedData(int32 id, API_PARAM(Out) int32& words) const;
+    /// <summary>
+    /// A copy of a subscribed field as bytes: a small field's values packed, 1 or 2 bytes
+    /// each, little-endian (a small ref's largest value means no row); other fields as their words.
+    /// </summary>
+    API_FUNCTION() Array<byte> GetSubscribedBytes(int32 id) const;
+    /// <summary>
+    /// The same without a copy: a pointer to `size` bytes, valid until the tick after the
+    /// next one begins. C# code uses TerniWorld.SubscribedBytes(id), a span over it.
+    /// </summary>
+    API_FUNCTION() void* GetSubscribedBytesData(int32 id, API_PARAM(Out) int32& size) const;
 
     // ---- entities that come and go (entity types marked dynamic) ----
 
@@ -573,6 +589,8 @@ public:
     // ---- the device ----
 
     API_PROPERTY() String GetDeviceName() const;
+    /// <summary>Small fields are stored in 32 bits here: the device has no TerniDevice.SmallFields, or TerniStartOptions.WidenSmallFields asked for it.</summary>
+    API_PROPERTY() bool GetIsWidened() const;
     API_PROPERTY() TerniHealth GetHealth() const;
     /// <summary>Continues on another device, bit for bit, e.g. when this one has become slow.</summary>
     API_FUNCTION() bool MoveToDevice(int32 device);

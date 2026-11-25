@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -253,6 +254,7 @@ Array TerniWorld::get_devices() {
         device["usable"] = d.usable;
         device["why_not"] = to_godot(d.why_not);
         device["robustness"] = d.robustness;
+        device["small_fields"] = d.small_fields;
         out.push_back(device);
     }
     if (!error.empty()) UtilityFunctions::push_error("[Terni] " + to_godot(error));
@@ -405,7 +407,8 @@ bool TerniWorld::add_start_modifier(int64_t bundle, int64_t entity, int64_t row,
 // Options (all optional): device (int: run on this device; otherwise choose), ignore_renderer
 // (bool: do not prefer the renderer's GPU), preference (DevicePreference), cache_folder
 // (String; default: "spirv" in the game folder), cache_only (bool: never compile rules),
-// validation (bool), spin_us (int: waits for a tick spin this many microseconds before they sleep).
+// validation (bool), spin_us (int: waits for a tick spin this many microseconds before they sleep),
+// widen_small_fields (bool, for tests: store small fields in 32 bits on any device).
 TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
     add_shipped_driver();
     if (!bridge()->loaded()) {
@@ -426,6 +429,7 @@ TerniWorld::StartJob* TerniWorld::prepare_start(const Dictionary& options) {
     job->options.cache_only = bool(options.get("cache_only", false));
     job->options.validation = bool(options.get("validation", false));
     job->options.spin_us = static_cast<uint32_t>(std::max(to_int(options.get("spin_us", 0)), 0));
+    job->options.widen_small_fields = bool(options.get("widen_small_fields", false));
     job->cache_first = !job->options.cache_only && !terni_bridge::can_compile_rules();
     if (!use_device && !bool(options.get("ignore_renderer", false))) {
         job->match_renderer = true;
@@ -564,6 +568,7 @@ PackedStringArray TerniWorld::get_bundles() const { return to_godot(bridge()->bu
 int64_t TerniWorld::find_bundle(const String& name) const { return bridge()->find_bundle(to_std(name)); }
 PackedStringArray TerniWorld::get_modifier_keys() const { return to_godot(bridge()->modifier_keys()); }
 int64_t TerniWorld::find_modifier_key(const String& name) const { return bridge()->find_modifier_key(to_std(name)); }
+bool TerniWorld::has_small_fields() const { return bridge()->small_fields(); }
 int64_t TerniWorld::get_checksum() const {
     const uint64_t sum = bridge()->checksum();
     report();
@@ -614,6 +619,19 @@ PackedInt32Array TerniWorld::get_subscribed(int64_t id) const {
     const int32_t* data = bridge()->subscribed(to_int(id), words);
     report();
     return to_packed(data, data ? static_cast<size_t>(words) : 0);
+}
+
+// A small field's values packed, 1 or 2 bytes each, little-endian; other fields as their words.
+PackedByteArray TerniWorld::get_subscribed_bytes(int64_t id) const {
+    int size = 0;
+    const uint8_t* data = bridge()->subscribed_bytes(to_int(id), size);
+    report();
+    PackedByteArray out;
+    if (data && size > 0) {
+        out.resize(size);
+        std::memcpy(out.ptrw(), data, static_cast<size_t>(size));
+    }
+    return out;
 }
 
 // ---- entities that come and go ----
@@ -783,6 +801,7 @@ int64_t TerniWorld::get_sync_reads() const { return static_cast<int64_t>(bridge(
 // ---- the device ----
 
 String TerniWorld::get_device_name() const { return to_godot(bridge()->device_name()); }
+bool TerniWorld::is_widened() const { return bridge()->widened(); }
 
 Dictionary TerniWorld::get_health() const {
     const terni_bridge::Health h = bridge()->health();
@@ -871,6 +890,7 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_modifier_keys"), &TerniWorld::get_modifier_keys);
     ClassDB::bind_method(D_METHOD("find_modifier_key", "name"), &TerniWorld::find_modifier_key);
     ClassDB::bind_method(D_METHOD("get_checksum"), &TerniWorld::get_checksum);
+    ClassDB::bind_method(D_METHOD("has_small_fields"), &TerniWorld::has_small_fields);
 
     ClassDB::bind_method(D_METHOD("read_field", "entity", "field", "first_row", "rows"), &TerniWorld::read_field, DEFVAL(0), DEFVAL(-1));
     ClassDB::bind_method(D_METHOD("write_field", "entity", "field", "row", "words"), &TerniWorld::write_field);
@@ -878,6 +898,7 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("write_values", "entity", "field", "row", "index", "words"), &TerniWorld::write_values);
     ClassDB::bind_method(D_METHOD("subscribe", "entity", "field", "first_row", "rows"), &TerniWorld::subscribe, DEFVAL(0), DEFVAL(-1));
     ClassDB::bind_method(D_METHOD("get_subscribed", "id"), &TerniWorld::get_subscribed);
+    ClassDB::bind_method(D_METHOD("get_subscribed_bytes", "id"), &TerniWorld::get_subscribed_bytes);
 
     ClassDB::bind_method(D_METHOD("create_entity", "entity"), &TerniWorld::create_entity);
     ClassDB::bind_method(D_METHOD("destroy_entity", "entity", "row"), &TerniWorld::destroy_entity);
@@ -914,6 +935,7 @@ void TerniWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_sync_reads"), &TerniWorld::get_sync_reads);
 
     ClassDB::bind_method(D_METHOD("get_device_name"), &TerniWorld::get_device_name);
+    ClassDB::bind_method(D_METHOD("is_widened"), &TerniWorld::is_widened);
     ClassDB::bind_method(D_METHOD("get_health"), &TerniWorld::get_health);
     ClassDB::bind_method(D_METHOD("move_to_device", "device"), &TerniWorld::move_to_device);
     ClassDB::bind_method(D_METHOD("get_report"), &TerniWorld::get_report);

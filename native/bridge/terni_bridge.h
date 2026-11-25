@@ -22,6 +22,7 @@ struct Device {
     // (terni::BufferRobustness): 0 undefined, 1 stays inside the buffer in a way the driver
     // chooses, 2 reads 0 and writes nothing, the same on every device.
     int robustness = 0;
+    bool small_fields = false;  // stores small fields packed; without, in 32 bits, with the same results
 };
 
 // Where the rules' SPIR-V came from.
@@ -38,6 +39,7 @@ struct StartOptions {
     bool cache_only = true;
     bool validation = false;
     uint32_t spin_us = 0;  // waits for a tick spin this long before they sleep (GameSimOptions::spin_us)
+    bool widen_small_fields = false;  // for tests: store small fields in 32 bits on any device
     CompileStats compiler;  // what terni_compile_rules did for this start (parse_compile_output)
 };
 
@@ -185,12 +187,15 @@ public:
     std::vector<std::string> modifier_keys() const;
     int find_modifier_key(const std::string& name) const;
     uint64_t checksum() const;
+    bool small_fields() const;  // the game has fields of 8 or 16 bits
 
     bool read_field(int entity, const std::string& field, int first_row, int rows, std::vector<int32_t>& words);
     bool write_field(int entity, const std::string& field, int row, const int32_t* words, size_t count);
     bool write_values(int entity, const std::string& field, int row, int index, const int32_t* words, size_t count);
     int subscribe(int entity, const std::string& field, int first_row, int rows);  // -1: failed
     const int32_t* subscribed(int id, int& words) const;                           // null: failed
+    // The same as bytes: a small field's values packed, 1 or 2 bytes each, little-endian.
+    const uint8_t* subscribed_bytes(int id, int& bytes) const;
 
     int create_entity(int entity);  // -1: full, or failed
     bool destroy_entity(int entity, int row);
@@ -235,6 +240,7 @@ public:
     std::string device_name() const;
     Health health() const;
     bool move_to_device(int device);
+    bool widened() const;  // small fields are stored in 32 bits here
     std::string report() const;
 
     // The device was lost (a rule ran too long and the driver reset the GPU, or the GPU

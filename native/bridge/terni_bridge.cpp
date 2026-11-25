@@ -36,6 +36,7 @@ std::vector<Device> devices(std::string& error) {
             device.cpu = d.cpu();
             device.usable = d.usable;
             device.robustness = static_cast<int>(d.robustness);
+            device.small_fields = d.small_fields;
             out.push_back(std::move(device));
         }
     } catch (const std::exception& e) {
@@ -207,6 +208,13 @@ struct World::Impl {
                                      "): start the world again, on this device or another, and load the last save");
         if (!sim) throw std::runtime_error("the world is not running");
         check_simulated_loss();
+    }
+    void need_subscription(int id) {
+        need_sim();
+        if (id < 0 || id >= subscriptions)
+            throw std::runtime_error("no such subscription: id " + std::to_string(id) + ", this world has " +
+                                     std::to_string(subscriptions) +
+                                     " (subscriptions end when a world stops or starts again)");
     }
     void need_entity(int index) const {
         if (!entity(index)) throw std::runtime_error("no such entity type");
@@ -384,6 +392,7 @@ bool World::start(const StartOptions& options) {
         o.cache_only = options.cache_only || !terni::can_compile_rules();
         o.validation = options.validation;
         o.spin_us = options.spin_us;
+        o.widen_small_fields = options.widen_small_fields;
         impl_->compiler = options.compiler;
         impl_->lost = false;
         impl_->simulate_lost = false;
@@ -553,6 +562,8 @@ int World::find_modifier_key(const std::string& name) const {
     return impl_->game ? impl_->game->modifier_key_index(name) : -1;
 }
 
+bool World::small_fields() const { return impl_->game && impl_->game->small_fields(); }
+
 uint64_t World::checksum() const {
     return guard(impl_, error_, uint64_t{0}, [&] { return impl_->game ? terni::game_checksum(*impl_->game) : uint64_t{0}; });
 }
@@ -604,13 +615,19 @@ int World::subscribe(int entity, const std::string& field, int first_row, int ro
 const int32_t* World::subscribed(int id, int& words) const {
     words = 0;
     return guard(impl_, error_, static_cast<const int32_t*>(nullptr), [&] {
-        impl_->need_sim();
-        if (id < 0 || id >= impl_->subscriptions)
-            throw std::runtime_error("no such subscription: id " + std::to_string(id) + ", this world has " +
-                                     std::to_string(impl_->subscriptions) +
-                                     " (subscriptions end when a world stops or starts again)");
+        impl_->need_subscription(id);
         const std::span<const int32_t> result = impl_->sim->tick_result(static_cast<uint32_t>(id));
         words = static_cast<int>(result.size());
+        return result.data();
+    });
+}
+
+const uint8_t* World::subscribed_bytes(int id, int& bytes) const {
+    bytes = 0;
+    return guard(impl_, error_, static_cast<const uint8_t*>(nullptr), [&] {
+        impl_->need_subscription(id);
+        const std::span<const uint8_t> result = impl_->sim->tick_result_bytes(static_cast<uint32_t>(id));
+        bytes = static_cast<int>(result.size());
         return result.data();
     });
 }
@@ -905,6 +922,8 @@ bool World::move_to_device(int device) {
         return true;
     });
 }
+
+bool World::widened() const { return impl_->sim && impl_->sim->widened(); }
 
 std::string World::report() const {
     return guard(impl_, error_, std::string(), [&] { return impl_->sim ? impl_->sim->report() : std::string(); });

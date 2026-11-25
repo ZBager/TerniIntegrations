@@ -196,6 +196,15 @@ public partial class Main : Control
             var replaced = start.ReplaceModifier(added[1], harvest, planets, first, 2 * TerniValue.RateOne);
             Check(!start.IsModifierAlive(added[1]) && start.IsModifierAlive(replaced) && start.ModifierCount == instances + 2, "a modifier replaced by another");
             Check(start.TickChecked() && start.OrderIssues.Length == 0 && start.Ticks == 1, "a checked tick finds no order issues");
+            // This game has no small fields: nothing to widen, and a field's bytes are its words.
+            var wide = new TerniWorld();
+            Check(wide.Load("res://Galaxy") && wide.Start(new TerniStartOptions { WidenSmallFields = true }) && !wide.HasSmallFields && !wide.IsWidened,
+                  "WidenSmallFields changes nothing without small fields");
+            var sub = wide.Subscribe(planets, "pop");
+            wide.Tick();
+            Check(wide.GetSubscribedBytes(sub).Length > 0 &&
+                  wide.GetSubscribedBytes(sub).SequenceEqual(wide.GetSubscribed(sub).SelectMany(System.BitConverter.GetBytes)), "a field's bytes");
+            wide.Stop();
             Check(start.CompileStats.Compiled + start.CompileStats.Cached >= 3, $"compile statistics: {start.CompileStats}");
             start.Stop();
         }

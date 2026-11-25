@@ -91,7 +91,8 @@ namespace TerniEditor
                 text.AppendLine($"{device.Index}: {device.Name} ({device.Type})" + (device.Index == renderer ? ", the engine renders with it" : "") +
                                 (!device.Usable ? " - not usable: " + device.WhyNot :
                                  device.Robustness == TerniBufferRobustness.Bounded ? ", reads and writes past a field's end are up to the driver" :
-                                 device.Robustness == TerniBufferRobustness.None ? ", reads and writes past a field's end are undefined" : ""));
+                                 device.Robustness == TerniBufferRobustness.None ? ", reads and writes past a field's end are undefined" : "") +
+                                (device.Usable && !device.SmallFields ? ", stores small fields in 32 bits" : ""));
             return text.Length == 0 ? "No Vulkan device found." : text.ToString().TrimEnd();
         }
 

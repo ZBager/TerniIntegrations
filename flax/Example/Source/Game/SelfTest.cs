@@ -302,6 +302,17 @@ namespace Game
             }
         }
 
+        // The packed bytes of moon.phase after one tick; the words must agree with them.
+        private static byte[] MoonBytes(TerniWorld world, int moon, Action<bool, string> check)
+        {
+            var id = world.Subscribe(moon, "phase");
+            world.Tick();
+            var bytes = world.SubscribedBytes(id).ToArray();
+            check(bytes.SequenceEqual(world.GetSubscribedBytes(id)) && bytes.Select(b => (int)b).SequenceEqual(world.GetSubscribed(id)),
+                  "the packed bytes are the words' values");
+            return bytes;
+        }
+
         // A rule whose result depends on the order of its rows, and where its SPIR-V came from.
         private static void CheckOrderAndCache(string folder, Action<bool, string> check)
         {
@@ -335,6 +346,16 @@ namespace Game
                 check(!world.WriteValue(moon, "phase", 0, 256) && world.LastError.Contains("does not fit"), "a value that does not fit is refused");
                 check(world.WriteValue(moon, "owner", 1, -1) && world.Tick() && world.ReadField(moon, "owner", 1, 1).SequenceEqual(new[] { -1 }), "a small ref to no row");
                 check(world.Start(options) && world.CompileStats.Compiled == 0 && world.CompileStats.Cached >= 3, "the second start takes them from the cache");
+                // Small fields packed, and widened as on a device that cannot pack them: the cache has rules for both.
+                var packs = TerniWorld.GetDevices().First(d => d.Name == world.DeviceName).SmallFields;
+                check(world.HasSmallFields && world.IsWidened != packs, $"small fields are packed where the device can ({world.DeviceName})");
+                var bytes = MoonBytes(world, moon, check);
+                var hash = world.GetEntityHashes().First(h => h.Name == "moon").Hash;
+                options.WidenSmallFields = true;
+                check(world.Start(options) && world.IsWidened && world.CompileStats.Compiled == 0, "the cache holds the widened rules too");
+                check(bytes.SequenceEqual(new byte[] { 255, 255, 255 }) && MoonBytes(world, moon, check).SequenceEqual(bytes) &&
+                      world.GetEntityHashes().First(h => h.Name == "moon").Hash == hash, "widened small fields give the same bytes and hash");
+                check(world.GetSubscribedBytes(99).Length == 0 && world.LastError.Length > 0, "no bytes of a subscription there is not");
                 world.Stop();
                 check(!world.TickChecked() && world.CompileStats.Cached == 0, "a stopped world cannot be checked");
             }

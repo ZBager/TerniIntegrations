@@ -258,6 +258,7 @@ Array<TerniDevice> TerniWorld::GetDevices()
         device.Usable = d.usable;
         device.WhyNot = ToFlax(d.why_not);
         device.Robustness = (TerniBufferRobustness)d.robustness;
+        device.SmallFields = d.small_fields;
         out.Add(device);
     }
     if (!error.empty())
@@ -495,6 +496,7 @@ TerniWorld::StartJob* TerniWorld::PrepareStart(const TerniStartOptions& options)
     job->options.cache_only = options.CacheOnly;
     job->options.validation = options.Validation;
     job->options.spin_us = (uint32_t)Math::Max(options.SpinMicroseconds, 0);
+    job->options.widen_small_fields = options.WidenSmallFields;
     job->cacheFirst = !options.CacheOnly && !terni_bridge::can_compile_rules();
     if (!options.UseDevice && !options.IgnoreRenderer)
     {
@@ -727,6 +729,11 @@ int32 TerniWorld::FindModifierKey(const StringView& name) const
     return Bridge()->find_modifier_key(ToStd(name));
 }
 
+bool TerniWorld::GetHasSmallFields() const
+{
+    return Bridge()->small_fields();
+}
+
 uint64 TerniWorld::GetChecksum() const
 {
     return Checked(Bridge()->checksum());
@@ -779,6 +786,21 @@ Array<int32> TerniWorld::GetSubscribed(int32 id) const
 void* TerniWorld::GetSubscribedData(int32 id, int32& words) const
 {
     return (void*)Checked(Bridge()->subscribed(id, words));
+}
+
+Array<byte> TerniWorld::GetSubscribedBytes(int32 id) const
+{
+    int32 size = 0;
+    const byte* data = (const byte*)GetSubscribedBytesData(id, size);
+    Array<byte> out;
+    if (data)
+        out.Set(data, size);
+    return out;
+}
+
+void* TerniWorld::GetSubscribedBytesData(int32 id, int32& size) const
+{
+    return (void*)Checked(Bridge()->subscribed_bytes(id, size));
 }
 
 int32 TerniWorld::CreateEntity(int32 entity)
@@ -980,6 +1002,11 @@ TerniHealth TerniWorld::GetHealth() const
     out.Ticks = h.ticks;
     out.Slow = h.slow;
     return out;
+}
+
+bool TerniWorld::GetIsWidened() const
+{
+    return Bridge()->widened();
 }
 
 bool TerniWorld::MoveToDevice(int32 device)

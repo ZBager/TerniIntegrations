@@ -53,7 +53,7 @@ func _on_tick() -> void:
 
 `TerniWorld` has the same calls as in the other plugins, in snake_case: `load(folder,
 mods)`, `start(options)` / `begin_start(options)`, `tick` / `begin_tick` / `tick_ready` /
-`end_tick`, `read_field`, `write_field`, `write_value`, `subscribe`, `get_subscribed`,
+`end_tick`, `read_field`, `write_field`, `write_value`, `subscribe`, `get_subscribed`, `get_subscribed_bytes`,
 `create_entity`, `get_alive_bits`, `get_free_count`, `add_modifier` (a handle is a
 `Vector2i`), `add_modifiers` (one bundle on many rows), `replace_modifier`, `save` / `load_save(data, by_name)`, `get_state_hash`, `get_field_hashes`,
 `get_entity_hashes`, `get_stage_times`, `get_compile_stats`, `get_sync_reads`, `get_devices`, `find_renderer_device`,
@@ -65,7 +65,16 @@ microseconds before they sleep (Terni's
 [Embedding](https://github.com/ZBager/Terni/blob/main/docs/embedding.md#waiting-for-small-ticks)
 says when that is worth it; the node has it as **Spin Us**). Each device in `get_devices()` has `robustness`: what a
 rule that reads or writes past the end of a field does there (`ROBUSTNESS_DEFINED`, on
-every current desktop driver: reads give 0 and writes are dropped, the same everywhere).
+every current desktop driver: reads give 0 and writes are dropped, the same everywhere),
+and `small_fields`.
+
+A game can store fields in 8 or 16 bits
+([Terni's guide](https://github.com/ZBager/Terni/blob/main/docs/concepts.md#small-fields)).
+Every call here sees one 32-bit word per value; `get_subscribed_bytes(id)` gives a
+subscribed field as the packed bytes, to upload to a texture or buffer. A device without 8
+and 16-bit storage (its `small_fields` is false) stores them in 32 bits, with the same
+results: `is_widened()` tells, and the start option `widen_small_fields` does so on any
+device, to test it. `has_small_fields()` tells whether a game has any.
 
 By default the simulation runs on the GPU the engine renders with, if it can: it keeps
 a laptop's second GPU asleep and follows the player's choice of GPU. The node's
